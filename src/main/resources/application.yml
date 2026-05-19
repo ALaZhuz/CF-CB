@@ -1,0 +1,17 @@
+codebeamer:
+  #  hirain环境
+  base-url: https://cb-trial.hirain.com/cb/api
+  username: yangyang.zhang
+  password: yangyang.zhang
+
+  #  春风测试环境
+#  base-url: http://192.168.101.174:8080/cb/api
+#  username: 271824611524632704
+#  password: cbroot
+
+  # 春风正式环境
+#    base-url: https://alm-cb.cfmoto.com:8090/cb/api
+#    username: Hirain01
+#    password: Hirain01
+server:
+  port: 8081
