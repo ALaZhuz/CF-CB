@@ -25,7 +25,7 @@ public interface CBSwaggerService {
     CBQueryResponse query(int page, int pageSize, String queryString);
 
     /**
-     * 获取当前Tracker的所有条目
+     * 获取Tracker的所有条目
      * @param page
      * @param pageSize
      * @param trackerId
@@ -91,6 +91,18 @@ public interface CBSwaggerService {
      * @return
      */
     void putTrackerItemField(TrackerItemFieldRequest req, Integer id);
+
+    /**
+     * 查询所有评审
+     * state:
+     * 开启--OPEN
+     * 关闭--CLOSED
+     */
+
+
+    /**
+     * 删除Tracker条目
+     */
 
 
 }
