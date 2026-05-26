@@ -1,16 +1,9 @@
 package org.example.service;
 
-/**
- * dingding API
- */
 public interface DingService {
-    /**
-     * 发送钉钉消息
-     */
+    String getAccessToken();
 
-    /**
-     * 春风API
-     * 获取当前用户的组织架构（科长、部长、总监）
-     * 多个用户会有相同组织架构，要避免
-     */
+    void sendMessage(String userIds, String title, String markdown, String singleTitle, String singleUrl);
+
+    String queryOrganizationManager(String employeeId);
 }

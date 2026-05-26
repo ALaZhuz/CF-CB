@@ -15,21 +15,27 @@ codebeamer:
 #    password: Hirain01
 
 
-  # HiddenTrackerId
-  hidden-tracker: 2295892
-
 ding:
+  corp-id: 9420b0c0840fc1e421c4d045d50c3dc
+  app-key: dingen7uf61izibidx34
+  app-secret: oRrTEcxXX-BmtTouwsDBH_6lR4mIe5hHQ9QtTDG2cvD0uJlARHzIk_RuujvlIzmD
+  agent-id: 4182157252
+  access-token-url: https://api.dingtalk.com/v1.0/oauth2/accessToken
+  message-url: https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2
+  client-authorize-url: http://10.32.4.50:10600/papi/openapi/oauth2/authorize
+  client-access-token-url: http://10.32.4.50:10600/papi/openapi/oauth2/access_token
+  organization-webhook-url: http://10.32.4.50:10600/papi/openapi/api/open-esb/server/webhook/trigger/
   # 临期*天提醒默认值
   near-expired-default: 5
-
   # 超期*天提醒部长
   overdue-minister-default: 3
-
   # 超期*天提醒总监
   overdue-director-default: 5
-
   # 超期*天后每周一提醒
   overdue-weekly: 8
+
+review:
+  list-url: https://cb-trial.hirain.com/cb/api/reviews/list
 
 server:
   port: 8081
