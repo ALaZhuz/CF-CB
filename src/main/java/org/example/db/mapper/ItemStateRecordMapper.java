@@ -1,0 +1,71 @@
+package org.example.db.mapper;
+
+import org.apache.ibatis.annotations.*;
+import org.example.db.entity.ItemStateRecord;
+import java.util.List;
+
+/**
+ * 条目状态记录Mapper接口
+ *
+ * 提供对 item_state_record 表的CRUD操作，
+ * 用于即时通知和定时通知的状态记录管理。
+ *
+ * @author system
+ * @since 1.0
+ */
+@Mapper
+public interface ItemStateRecordMapper {
+
+    /**
+     * 插入条目状态记录
+     *
+     * 当条目进入目标状态时调用，记录条目的状态信息。
+     *
+     * @param record 条目状态记录实体
+     */
+    @Insert("INSERT INTO item_state_record (item_id, item_name, tracker_id, project_id, target_state, enter_state_time, last_notify_time) " +
+            "VALUES (#{itemId}, #{itemName}, #{trackerId}, #{projectId}, #{targetState}, #{enterStateTime}, #{lastNotifyTime})")
+    void insert(ItemStateRecord record);
+
+    /**
+     * 根据条目ID删除状态记录
+     *
+     * 当条目离开目标状态时调用，删除对应的状态记录。
+     *
+     * @param itemId Codebeamer条目ID
+     */
+    @Delete("DELETE FROM item_state_record WHERE item_id = #{itemId}")
+    void deleteByItemId(@Param("itemId") Integer itemId);
+
+    /**
+     * 根据条目ID查询状态记录
+     *
+     * 用于判断条目是否在目标状态中。
+     *
+     * @param itemId Codebeamer条目ID
+     * @return 条目状态记录，不存在则返回null
+     */
+    @Select("SELECT * FROM item_state_record WHERE item_id = #{itemId}")
+    ItemStateRecord selectByItemId(@Param("itemId") Integer itemId);
+
+    /**
+     * 查询所有条目状态记录
+     *
+     * 用于定时通知调度器获取所有需要处理的条目。
+     *
+     * @return 所有条目状态记录列表
+     */
+    @Select("SELECT * FROM item_state_record")
+    List<ItemStateRecord> selectAll();
+
+    /**
+     * 更新上次通知时间
+     *
+     * 发送通知成功后调用，更新last_notify_time字段。
+     *
+     * @param itemId Codebeamer条目ID
+     * @param lastNotifyTime 上次通知时间字符串
+     */
+    @Update("UPDATE item_state_record SET last_notify_time = #{lastNotifyTime} WHERE item_id = #{itemId}")
+    void updateLastNotifyTime(@Param("itemId") Integer itemId, @Param("lastNotifyTime") String lastNotifyTime);
+}
