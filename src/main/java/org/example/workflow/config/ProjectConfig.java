@@ -36,6 +36,7 @@ public class ProjectConfig {
      *
      * 定义某个tracker的专属配置，优先级最高。
      * 可直接引用工作流模板，或直接定义状态配置。
+     * 可定义tracker专属的extra-fields（完全覆盖项目级）。
      */
     @Data
     public static class TrackerConfig {
@@ -48,5 +49,8 @@ public class ProjectConfig {
 
         /** 直接定义的状态配置列表（优先级高于引用的workflow） */
         private List<WorkflowTemplate.StateConfig> states;
+
+        /** Tracker级额外字段配置（完全覆盖项目级，不追加） */
+        private List<ExtraField> extraFields;
     }
 }

@@ -32,6 +32,35 @@ public class WorkflowConfigService {
     private final WorkflowProperties workflowProperties;
 
     /**
+     * 启动时打印配置内容，用于调试
+     */
+    @javax.annotation.PostConstruct
+    public void debugConfig() {
+        log.info("=== WorkflowProperties 配置加载调试 ===");
+        log.info("projects 数量: {}", workflowProperties.getProjects().size());
+
+        for (ProjectConfig project : workflowProperties.getProjects()) {
+            log.info("项目 {}: projectId={}, trackers数量={}",
+                    project.getProjectName(), project.getProjectId(),
+                    project.getTrackers() != null ? project.getTrackers().size() : 0);
+
+            if (project.getTrackers() != null) {
+                for (ProjectConfig.TrackerConfig tracker : project.getTrackers()) {
+                    log.info("  trackerId={}, extraFields={}",
+                            tracker.getTrackerId(),
+                            tracker.getExtraFields() != null ? tracker.getExtraFields().size() : "null");
+                    if (tracker.getExtraFields() != null) {
+                        for (ExtraField field : tracker.getExtraFields()) {
+                            log.info("    field={}, label={}", field.getField(), field.getLabel());
+                        }
+                    }
+                }
+            }
+        }
+        log.info("=== 配置调试结束 ===");
+    }
+
+    /**
      * 获取Tracker类型映射名称
      *
      * 用于消息模板中的 {trackertype} 占位符。
@@ -69,13 +98,27 @@ public class WorkflowConfigService {
      * 获取额外字段配置
      *
      * 用于消息模板中动态插入到链接行之前的额外字段。
-     * 项目级完全覆盖全局，不追加。
+     * 三级优先级：tracker级 > 项目级 > 全局级。
+     * tracker级完全覆盖项目级，不追加。
      *
      * @param projectId 项目ID
+     * @param trackerId tracker ID（可选）
      * @return 额外字段列表，未配置返回空列表
      */
-    public List<ExtraField> getExtraFields(Integer projectId) {
-        // 先查找项目级配置
+    public List<ExtraField> getExtraFields(Integer projectId, Integer trackerId) {
+        // 1. 先查找 tracker 级配置
+        if (projectId != null && trackerId != null) {
+            ProjectConfig projectConfig = findProjectConfig(projectId);
+            if (projectConfig != null) {
+                List<ExtraField> trackerFields = findTrackerExtraFields(projectConfig, trackerId);
+                if (trackerFields != null) {
+                    log.debug("使用tracker级extra-fields: projectId={}, trackerId={}", projectId, trackerId);
+                    return trackerFields;
+                }
+            }
+        }
+
+        // 2. 再查找项目级配置
         if (projectId != null) {
             List<ExtraField> projectFields = workflowProperties.getExtraFields()
                     .getProjects().get(String.valueOf(projectId));
@@ -84,9 +127,34 @@ public class WorkflowConfigService {
             }
         }
 
-        // 再使用全局配置
+        // 3. 最后使用全局配置
         List<ExtraField> globalFields = workflowProperties.getExtraFields().getGlobal();
         return globalFields != null ? globalFields : new ArrayList<>();
+    }
+
+    /**
+     * 在项目配置中查找 tracker 级 extra-fields
+     *
+     * @param projectConfig 项目配置
+     * @param trackerId tracker ID
+     * @return extra-fields 列表，未找到返回 null（注意：空列表表示显式设置为无额外字段）
+     */
+    private List<ExtraField> findTrackerExtraFields(ProjectConfig projectConfig, Integer trackerId) {
+        if (projectConfig.getTrackers() == null) {
+            return null;
+        }
+
+        Optional<ProjectConfig.TrackerConfig> trackerConfig = projectConfig.getTrackers().stream()
+                .filter(t -> t.getTrackerId().equals(trackerId))
+                .findFirst();
+
+        if (trackerConfig.isEmpty()) {
+            return null;
+        }
+
+        // 如果配置了 extraFields（包括空列表），则返回它
+        // null 表示未配置，需要继续查找项目级
+        return trackerConfig.get().getExtraFields();
     }
 
     /**
@@ -144,8 +212,9 @@ public class WorkflowConfigService {
      * 在项目配置中查找Tracker直接配置（最高优先级）
      *
      * trackers 配置可以是：
-     * - 直接定义 states（返回临时创建的 workflow）
-     * - 引用 workflow（返回对应的 workflow）
+     * - 只配置 workflow：返回对应的 workflow
+     * - 只配置 states：创建临时工作流模板
+     * - 同时配置 workflow 和 states：查找 workflow 并合并 states
      *
      * @param projectConfig 项目配置
      * @param trackerId tracker ID
@@ -166,17 +235,51 @@ public class WorkflowConfigService {
 
         ProjectConfig.TrackerConfig config = trackerConfig.get();
 
-        // 如果直接定义了states，创建临时工作流模板（最高优先级）
+        // 情况1：同时配置了 workflow 和 states，需要合并
+        if (config.getWorkflow() != null && !config.getWorkflow().isEmpty()
+                && config.getStates() != null && !config.getStates().isEmpty()) {
+            WorkflowTemplate baseWorkflow = findWorkflowByName(config.getWorkflow(), projectConfig);
+            if (baseWorkflow != null) {
+                // 合合逻辑：创建新workflow副本
+                WorkflowTemplate mergedWorkflow = new WorkflowTemplate();
+                mergedWorkflow.setName(baseWorkflow.getName() + "-merged");
+
+                // 复制原workflow的states（排除被覆盖的）
+                List<WorkflowTemplate.StateConfig> mergedStates = new ArrayList<>();
+                Set<String> overriddenStateNames = config.getStates().stream()
+                        .map(WorkflowTemplate.StateConfig::getName)
+                        .collect(Collectors.toSet());
+
+                if (baseWorkflow.getStates() != null) {
+                    for (WorkflowTemplate.StateConfig state : baseWorkflow.getStates()) {
+                        if (!overriddenStateNames.contains(state.getName())) {
+                            mergedStates.add(state);
+                        }
+                    }
+                }
+
+                // 添加差异配置中的states
+                mergedStates.addAll(config.getStates());
+                mergedWorkflow.setStates(mergedStates);
+
+                log.debug("tracker配置合并: trackerId={}, workflow={}, differentialStates={}",
+                        trackerId, config.getWorkflow(), overriddenStateNames);
+                return mergedWorkflow;
+            }
+            // workflow未找到，fallback使用states创建临时模板
+        }
+
+        // 情况2：只配置了 workflow，返回对应的 workflow
+        if (config.getWorkflow() != null && !config.getWorkflow().isEmpty()) {
+            return findWorkflowByName(config.getWorkflow(), projectConfig);
+        }
+
+        // 情况3：只配置了 states，创建临时工作流模板
         if (config.getStates() != null && !config.getStates().isEmpty()) {
             WorkflowTemplate template = new WorkflowTemplate();
             template.setName("tracker-" + trackerId + "-direct-config");
             template.setStates(config.getStates());
             return template;
-        }
-
-        // 如果引用了workflow，查找对应的工作流模板
-        if (config.getWorkflow() != null) {
-            return findWorkflowByName(config.getWorkflow(), projectConfig);
         }
 
         return null;

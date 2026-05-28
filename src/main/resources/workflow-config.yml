@@ -28,9 +28,6 @@ type-mappings:
     "5":
       Requirement: "智驾需求"
       Bug: "智驾缺陷"
-    "1002":
-      Requirement: "底盘需求"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 额外字段配置（动态插入到链接行之前）
 # 项目级完全覆盖全局，不追加
@@ -39,8 +36,6 @@ extra-fields:
   global:
     - field: "priority"
       label: "优先级"
-    - field: "severity"
-      label: "严重程度"
   projects:
     "5":
 
@@ -66,7 +61,7 @@ global-workflows:
 # ─────────────────────────────────────────────────────────────────────────────
 projects:
   - project-id: 5
-    project-name: "智能驾驶项目A"
+    project-name: "TEST FOR CHUNFENG"
 
     # 项目级 type-mappings（覆盖全局，已在上方type-mappings.projects中配置）
 
@@ -78,7 +73,9 @@ projects:
         states:
           - name: "Accepted"
             notify: false
-          - name: "评审中"
+          - name: "Draft"
+            notify-field: "assignedTo"
+          - name: "Waiting for approval"
             notify-field: "assignedTo"
           - name: "Approved"
             notify-field: "assignedTo"
@@ -96,9 +93,18 @@ projects:
       - tracker-type: "Requirement"
         workflow: "智驾需求流程"
 
-    # trackers：差异部分配置（tracker-matching未覆盖的特殊情况）
+    # trackers：差异部分配置（最高优先级，可定义extra-fields覆盖项目级）
     trackers:
+      - tracker-id: 5292
+        # tracker级 extra-fields（完全覆盖项目级）
+        extra-fields:
+          - field: "11111"
+            label: "11111"
+          - field: "priority"
+            label: "优先级"
       - tracker-id: 333
+        # tracker级 extra-fields 空列表（不显示任何额外字段）
+        extra-fields: []
         states:
           - name: "特殊状态A"
             notify-field: "特殊通知人"

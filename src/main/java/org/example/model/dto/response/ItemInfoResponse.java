@@ -1,6 +1,7 @@
 package org.example.model.dto.response;
 
 import lombok.Data;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -41,6 +42,33 @@ public class ItemInfoResponse {
 
     /** 提交人信息 */
     private MemberInfo submitter;
+
+    /** 创建人信息 */
+    private MemberInfo createdBy;
+
+    /** 修改人信息 */
+    private MemberInfo modifiedBy;
+
+    /** 创建时间 */
+    private LocalDateTime createdAt;
+
+    /** 修改时间 */
+    private LocalDateTime modifiedAt;
+
+    /** 优先级（CodeBeamer默认字段） */
+    private ChoiceOption priority;
+
+    /** 分类列表（CodeBeamer默认字段） */
+    private List<ChoiceOption> categories;
+
+    /** 严重程度列表（CodeBeamer默认字段） */
+    private List<ChoiceOption> severities;
+
+    /** 团队列表（CodeBeamer默认字段） */
+    private List<ChoiceOption> teams;
+
+    /** 版本列表（CodeBeamer默认字段） */
+    private List<ChoiceOption> versions;
 
     /** 自定义字段列表 */
     private List<CustomField> customFields;
@@ -88,6 +116,24 @@ public class ItemInfoResponse {
 
         /** 用户姓名 */
         private String displayName;
+
+        /** 用户邮箱 */
+        private String email;
+    }
+
+    /**
+     * 选择选项类（用于priority、severity、categories等默认字段）
+     */
+    @Data
+    public static class ChoiceOption {
+        /** 选项ID */
+        private Integer id;
+
+        /** 选项名称 */
+        private String name;
+
+        /** 选项类型 */
+        private String type;
     }
 
     /**
@@ -95,14 +141,23 @@ public class ItemInfoResponse {
      */
     @Data
     public static class CustomField {
+        /** 字段ID */
+        private Integer fieldId;
+
         /** 字段名称 */
         private String name;
 
         /** 字段标签（显示名称） */
         private String label;
 
-        /** 字段值列表 */
+        /** 字段值列表（成员类型字段，如 UserReference） */
         private List<MemberInfo> values;
+
+        /** 字段值（文本、日期、选择等非成员类型字段） */
+        private String value;
+
+        /** 字段类型（如 TextFieldValue、DateFieldValue 等） */
+        private String type;
     }
 
     /**
@@ -143,6 +198,16 @@ public class ItemInfoResponse {
         // 内置字段：submitter
         if ("submitter".equals(fieldName) && submitter != null) {
             return List.of(submitter);
+        }
+
+        // 内置字段：createdBy
+        if ("createdBy".equals(fieldName) && createdBy != null) {
+            return List.of(createdBy);
+        }
+
+        // 内置字段：modifiedBy
+        if ("modifiedBy".equals(fieldName) && modifiedBy != null) {
+            return List.of(modifiedBy);
         }
 
         // 自定义字段

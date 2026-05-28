@@ -2,6 +2,11 @@ spring:
   config:
     import: classpath:workflow-config.yml
 
+mybatis:
+  type-handlers-package: org.example.db.config
+  configuration:
+    map-underscore-to-camel-case: true
+
 codebeamer:
   #  hirain环境
   base-url: https://cb-pmt.hirain.com:8443/cb

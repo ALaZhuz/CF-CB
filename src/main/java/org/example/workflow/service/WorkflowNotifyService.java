@@ -97,30 +97,34 @@ public class WorkflowNotifyService {
                 return response;
             }
 
-            // 3. 检查转换前状态是否在表1有记录（离开目标状态）
-            ItemStateRecord existingRecord = itemStateRecordMapper.selectByItemId(itemId);
+            // 3. 判断 previousState 是否是需要通知的状态
+            WorkflowTemplate.StateConfig previousStateConfig = workflowConfigService.getStateConfig(workflow, previousState);
+            boolean previousStateNeedsNotify = workflowConfigService.shouldNotify(previousStateConfig);
 
-            if (existingRecord != null && existingRecord.getTargetState().equals(previousState)) {
-                // 离开目标状态，删除记录
+            // 4. 判断 targetState 是否是需要通知的状态
+            WorkflowTemplate.StateConfig targetStateConfig = workflowConfigService.getStateConfig(workflow, targetState);
+            boolean targetStateNeedsNotify = workflowConfigService.shouldNotify(targetStateConfig);
+
+            // 5. 根据状态转换情况决定操作
+            if (previousStateNeedsNotify && !targetStateNeedsNotify) {
+                // 从通知状态进入非通知状态 → 离开状态，删除记录
                 itemStateRecordMapper.deleteByItemId(itemId);
-                log.info("离开目标状态，删除状态记录: itemId={}, previousState={}", itemId, previousState);
+                log.info("离开通知状态，删除状态记录: itemId={}, previousState={}, targetState={}",
+                        itemId, previousState, targetState);
                 response.setSuccess(true);
                 response.setActionType("离开状态");
                 return response;
             }
 
-            // 4. 获取目标状态配置
-            WorkflowTemplate.StateConfig targetStateConfig = workflowConfigService.getStateConfig(workflow, targetState);
-
-            // 5. 判断目标状态是否需要通知
-            if (!workflowConfigService.shouldNotify(targetStateConfig)) {
+            // 如果 targetState 不需要通知，不做处理（可能是非通知状态之间的转换）
+            if (!targetStateNeedsNotify) {
                 log.info("目标状态不需要通知，不做处理: itemId={}, targetState={}", itemId, targetState);
                 response.setSuccess(true);
                 response.setActionType("无需处理");
                 return response;
             }
 
-            // 6. 进入目标状态：发送通知
+            // 6. 进入通知状态（包括状态转换）：发送通知
             String notifyField = targetStateConfig.getNotifyField();
             List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
 
@@ -132,7 +136,7 @@ public class WorkflowNotifyService {
             }
 
             // 7. 格式化消息内容（使用固定模板 + type-mappings + extra-fields）
-            String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId);
+            String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId, trackerId);
 
             // 8. 发送通知给每个成员
             List<String> notifiedUsers = new ArrayList<>();
@@ -199,11 +203,12 @@ public class WorkflowNotifyService {
      * @param members 通知成员列表
      * @param trackerType tracker类型名称
      * @param projectId 项目ID
+     * @param trackerId tracker ID（用于查找tracker级extra-fields）
      * @return 格式化后的消息内容
      */
     private String formatMessage(ItemInfoResponse itemInfo, String targetState,
                                   String notifyField, List<ItemInfoResponse.MemberInfo> members,
-                                  String trackerType, Integer projectId) {
+                                  String trackerType, Integer projectId, Integer trackerId) {
         // 1. 获取 type-mapping
         String trackerTypeDisplay = workflowConfigService.getTypeMapping(trackerType, projectId);
 
@@ -212,8 +217,8 @@ public class WorkflowNotifyService {
                 .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
                 .collect(Collectors.joining(","));
 
-        // 3. 获取 extra-fields 值
-        List<ExtraField> extraFields = workflowConfigService.getExtraFields(projectId);
+        // 3. 获取 extra-fields 值（支持 tracker 级配置）
+        List<ExtraField> extraFields = workflowConfigService.getExtraFields(projectId, trackerId);
         StringBuilder extraFieldsContent = new StringBuilder();
         for (ExtraField extraField : extraFields) {
             String fieldValue = getExtraFieldValue(itemInfo, extraField.getField());
@@ -222,6 +227,10 @@ public class WorkflowNotifyService {
                         .append(": ")
                         .append(fieldValue)
                         .append("\n");
+            } else {
+                // 找不到字段值，警告提示
+                log.warn("extra-field字段未找到或值为空: itemId={}, fieldName={}, 请检查Codebeamer中是否存在该字段或字段名是否正确",
+                        itemInfo.getId(), extraField.getField());
             }
         }
 
@@ -247,6 +256,10 @@ public class WorkflowNotifyService {
      * 获取额外字段值
      *
      * 从条目详情中获取指定字段的值。
+     * 支持：
+     * - CodeBeamer默认字段（priority、categories、severities等）
+     * - 自定义字段中的成员类型字段（values）：显示名称列表
+     * - 自定义字段中的文本/日期/选择类型字段（value）：直接显示值
      *
      * @param itemInfo 条目详情
      * @param fieldName 字段名称
@@ -257,23 +270,67 @@ public class WorkflowNotifyService {
             return null;
         }
 
-        // 查找自定义字段
+        // 1. 先检查CodeBeamer默认字段
+        // priority（单个选项）
+        if ("priority".equals(fieldName) && itemInfo.getPriority() != null) {
+            return itemInfo.getPriority().getName();
+        }
+
+        // categories（列表）
+        if ("categories".equals(fieldName) && itemInfo.getCategories() != null && !itemInfo.getCategories().isEmpty()) {
+            return itemInfo.getCategories().stream()
+                    .map(ItemInfoResponse.ChoiceOption::getName)
+                    .collect(Collectors.joining(","));
+        }
+
+        // severities（列表）
+        if ("severities".equals(fieldName) && itemInfo.getSeverities() != null && !itemInfo.getSeverities().isEmpty()) {
+            return itemInfo.getSeverities().stream()
+                    .map(ItemInfoResponse.ChoiceOption::getName)
+                    .collect(Collectors.joining(","));
+        }
+
+        // teams（列表）
+        if ("teams".equals(fieldName) && itemInfo.getTeams() != null && !itemInfo.getTeams().isEmpty()) {
+            return itemInfo.getTeams().stream()
+                    .map(ItemInfoResponse.ChoiceOption::getName)
+                    .collect(Collectors.joining(","));
+        }
+
+        // versions（列表）
+        if ("versions".equals(fieldName) && itemInfo.getVersions() != null && !itemInfo.getVersions().isEmpty()) {
+            return itemInfo.getVersions().stream()
+                    .map(ItemInfoResponse.ChoiceOption::getName)
+                    .collect(Collectors.joining(","));
+        }
+
+        // status
+        if ("status".equals(fieldName)) {
+            return itemInfo.getStatus();
+        }
+
+        // 2. 查找自定义字段
         if (itemInfo.getCustomFields() != null) {
             for (ItemInfoResponse.CustomField field : itemInfo.getCustomFields()) {
                 if (field.getName().equals(fieldName) ||
                         (field.getLabel() != null && field.getLabel().equals(fieldName))) {
+                    // 成员类型字段（values）
                     if (field.getValues() != null && !field.getValues().isEmpty()) {
-                        // 如果是成员类型字段，显示名称列表
                         return field.getValues().stream()
                                 .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getName())
                                 .collect(Collectors.joining(","));
                     }
-                    // 其他类型字段暂不支持，返回null
+                    // 文本/日期/选择类型字段（value）
+                    if (field.getValue() != null && !field.getValue().isEmpty()) {
+                        return field.getValue();
+                    }
                     return null;
                 }
             }
         }
 
+        log.warn("extra-field字段未找到或值为空: itemId={}, fieldName={}, 请检查Codebeamer中是否存在该字段或字段名是否正确",
+                itemInfo.getId(), fieldName);
         return null;
     }
 

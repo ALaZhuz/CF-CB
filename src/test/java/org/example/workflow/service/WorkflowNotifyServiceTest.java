@@ -35,7 +35,7 @@ import static org.mockito.Mockito.*;
  * 测试场景：
  * 1. 进入目标状态 - 发送通知并记录状态
  * 2. 离开目标状态 - 删除状态记录
- * 3. 状态之间互转 - 无需处理
+ * 3. 状态之间互转 - 发送通知并更新记录
  * 4. 条目不存在 - 返回错误
  * 5. 发送通知失败 - 记录失败日志
  *
@@ -138,6 +138,8 @@ class WorkflowNotifyServiceTest {
 
     /**
      * 场景3: 离开目标状态 - 删除状态记录
+     *
+     * previousState="处理中"（需要通知），targetState="已关闭"（不需要通知）
      */
     @Test
     @DisplayName("离开目标状态 - 删除状态记录")
@@ -145,15 +147,22 @@ class WorkflowNotifyServiceTest {
         request.setPreviousState("处理中");
         request.setTargetState("已关闭");
 
-        // 模拟表1中存在该条目的记录
-        ItemStateRecord existingRecord = new ItemStateRecord();
-        existingRecord.setItemId(12345);
-        existingRecord.setTargetState("处理中");
+        // previousState配置（需要通知）
+        WorkflowTemplate.StateConfig previousStateConfig = new WorkflowTemplate.StateConfig();
+        previousStateConfig.setName("处理中");
+        previousStateConfig.setNotifyField("assignedTo");
 
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(existingRecord);
+        // previousState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
+                .thenReturn(previousStateConfig);
+        when(workflowConfigService.shouldNotify(previousStateConfig)).thenReturn(true);
+        // targetState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("已关闭")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
 
         NotifyResponse response = workflowNotifyService.notify(request);
 
@@ -176,11 +185,14 @@ class WorkflowNotifyServiceTest {
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(null);
-        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), anyString()))
+        // previousState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("新建")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
+        // targetState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
-        when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
-                .thenReturn(false);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(false);
 
         NotifyResponse response = workflowNotifyService.notify(request);
 
@@ -211,14 +223,17 @@ class WorkflowNotifyServiceTest {
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(null);
-        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), anyString()))
+        // previousState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("新建")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
+        // targetState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
-        when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
-                .thenReturn(true);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
         // Mock type-mappings and extra-fields
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
-        when(workflowConfigService.getExtraFields(anyInt())).thenReturn(Collections.emptyList());
+        when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
         doNothing().when(dingService).sendTextMessage(anyString(), anyString());
         doNothing().when(itemStateRecordMapper).insert(any(ItemStateRecord.class));
         doNothing().when(notifyLogMapper).insert(any());
@@ -232,11 +247,8 @@ class WorkflowNotifyServiceTest {
         assertTrue(response.getNotifiedUsers().contains("user456"));
         assertTrue(response.getFailedUsers().isEmpty());
 
-        // 验证发送通知被调用
         verify(dingService, times(2)).sendTextMessage(anyString(), anyString());
-        // 验证状态记录被保存
         verify(itemStateRecordMapper).insert(any(ItemStateRecord.class));
-        // 验证发送日志被记录
         verify(notifyLogMapper, times(2)).insert(any());
     }
 
@@ -260,15 +272,17 @@ class WorkflowNotifyServiceTest {
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(null);
-        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), anyString()))
+        // previousState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("新建")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
+        // targetState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
-        when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
-                .thenReturn(true);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
-        when(workflowConfigService.getExtraFields(anyInt())).thenReturn(Collections.emptyList());
+        when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
 
-        // user123发送成功，user456发送失败
         doAnswer(invocation -> {
             String userid = invocation.getArgument(0);
             if ("user456".equals(userid)) {
@@ -302,11 +316,14 @@ class WorkflowNotifyServiceTest {
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(null);
-        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), anyString()))
+        // previousState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("新建")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
+        // targetState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
-        when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
-                .thenReturn(true);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
 
         NotifyResponse response = workflowNotifyService.notify(request);
 
@@ -342,12 +359,10 @@ class WorkflowNotifyServiceTest {
         itemInfo.setAssignedTo(Collections.singletonList(member));
         workflow.setStates(Collections.singletonList(stateConfig));
 
-        // 设置extra-fields
         ExtraField extraField = new ExtraField();
         extraField.setField("priority");
         extraField.setLabel("优先级");
 
-        // 设置customFields
         ItemInfoResponse.CustomField customField = new ItemInfoResponse.CustomField();
         customField.setName("priority");
         customField.setLabel("优先级");
@@ -359,13 +374,16 @@ class WorkflowNotifyServiceTest {
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
                 .thenReturn(workflow);
-        when(itemStateRecordMapper.selectByItemId(anyInt())).thenReturn(null);
-        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), anyString()))
+        // previousState不需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("新建")))
+                .thenReturn(null);
+        when(workflowConfigService.shouldNotify(null)).thenReturn(false);
+        // targetState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
-        when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
-                .thenReturn(true);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
         when(workflowConfigService.getTypeMapping(eq("Bug"), anyInt())).thenReturn("智驾缺陷");
-        when(workflowConfigService.getExtraFields(anyInt())).thenReturn(Collections.singletonList(extraField));
+        when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.singletonList(extraField));
         doNothing().when(dingService).sendTextMessage(anyString(), anyString());
         doNothing().when(itemStateRecordMapper).insert(any(ItemStateRecord.class));
         doNothing().when(notifyLogMapper).insert(any());
@@ -373,7 +391,6 @@ class WorkflowNotifyServiceTest {
         NotifyResponse response = workflowNotifyService.notify(request);
 
         assertTrue(response.isSuccess());
-        // 验证消息格式包含type-mapping和extra-fields
         verify(dingService).sendTextMessage(eq("user123"), anyString());
     }
 }
