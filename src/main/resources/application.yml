@@ -1,8 +1,15 @@
+spring:
+  config:
+    import: classpath:workflow-config.yml
+
 codebeamer:
   base-url-prefix: https://cb-trial.hirain.com
 #  username: yangyang.zhang
   username: 271824611524632704
   password: yangyang.zhang
+#  base-url: https://cb-pmt.hirain.com:8443/cb
+#  username: zhangjiamin.zhong
+#  password: zhangjiamin.zhong
 
   #  春风测试环境
 #  base-url-prefix: http://192.168.101.174:8080
@@ -29,3 +36,6 @@ ding:
 
 server:
   port: 8081
+
+sqlite:
+  database-path: data/notification.db

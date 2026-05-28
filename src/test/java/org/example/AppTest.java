@@ -12,12 +12,17 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.example.service.CBSwaggerService;  
+import org.example.model.dto.response.ItemInfoResponse;
+
 
 @Slf4j
 @SpringBootTest
 class AppTest {
     @Autowired
     private TrackerService trackerService;
+    @Autowired
+    private CBSwaggerService cbSwaggerService;
 
     @Autowired
     private ReviewNotifyScheduler reviewNotifyScheduler;
@@ -54,5 +59,11 @@ class AppTest {
 //        item2.setTrackerId("2247342");
 //        items.add(item2);
 //        trackerService.updateField(items);
+    }
+
+    @Test
+    void testGetAllUsers(){
+        List<ItemInfoResponse.MemberInfo> res = cbSwaggerService.getAllUsers();
+        log.info(res.toString());
     }
 }

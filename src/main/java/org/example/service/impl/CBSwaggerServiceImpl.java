@@ -454,6 +454,218 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
+     * 获取单个条目的完整详情
+     *
+     * 调用Codebeamer API获取条目的详细信息，包括名称、状态、成员字段等。
+     *
+     * @param itemId 条目ID
+     * @return 条目详情，不存在返回null
+     */
+    @Override
+    public ItemInfoResponse getItemInfo(Integer itemId) {
+        if (itemId == null) {
+            return null;
+        }
+
+        String url = baseUrl + "/api/v3/items/" + itemId;
+
+        ResponseEntity<JsonNode> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                httpHelper.getAuthEntity(),
+                JsonNode.class
+        );
+
+        JsonNode body = response.getBody();
+        if (body == null || body.isMissingNode()) {
+            log.warn("条目不存在, itemId={}", itemId);
+            return null;
+        }
+
+        ItemInfoResponse itemInfo = new ItemInfoResponse();
+
+        // 解析基本字段
+        itemInfo.setId(itemId);
+        itemInfo.setName(body.path("name").asText(null));
+
+        // 解析状态
+        JsonNode statusNode = body.path("status");
+        itemInfo.setStatus(statusNode.path("name").asText(null));
+
+        // 解析tracker信息
+        // Codebeamer API返回：tracker.id, tracker.name
+        JsonNode trackerNode = body.path("tracker");
+        ItemInfoResponse.TrackerInfo trackerInfo = new ItemInfoResponse.TrackerInfo();
+        trackerInfo.setId(trackerNode.path("id").asInt());
+        trackerInfo.setName(trackerNode.path("name").asText(null));
+
+        itemInfo.setTracker(trackerInfo);
+
+        // 解析项目信息和tracker类型
+        // 需要通过/v3/trackers/{trackerId}接口获取project和type
+        Integer trackerId = trackerInfo.getId();
+        Integer projectId = null;
+        String projectName = null;
+        String typeName = null;
+
+        if (trackerId != null && trackerId > 0) {
+            try {
+                CBTrackerInfoResponse trackerInfoResp = getProjectInfo(trackerId);
+                if (trackerInfoResp != null) {
+                    // 获取项目信息
+                    if (trackerInfoResp.getProject() != null) {
+                        projectId = trackerInfoResp.getProject().getId();
+                        projectName = trackerInfoResp.getProject().getName();
+                    }
+                    // 获取tracker类型
+                    if (trackerInfoResp.getType() != null) {
+                        typeName = trackerInfoResp.getType().getName();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取tracker项目信息失败: trackerId={}, error={}", trackerId, e.getMessage());
+            }
+        }
+
+        // 设置tracker类型
+        trackerInfo.setTypeName(typeName);
+        itemInfo.setTrackerType(typeName);
+
+        ItemInfoResponse.ProjectInfo projectInfo = new ItemInfoResponse.ProjectInfo();
+        projectInfo.setId(projectId);
+        projectInfo.setName(projectName);
+        itemInfo.setProject(projectInfo);
+
+        // 日志记录解析结果
+        log.info("条目详情解析完成: itemId={}, trackerId={}, trackerName={}, trackerType={}, projectId={}, projectName={}",
+                itemId, trackerId, trackerInfo.getName(), typeName, projectId, projectName);
+
+        // 解析assignedTo成员列表
+        JsonNode assignedToNode = body.path("assignedTo");
+        if (assignedToNode.isArray()) {
+            List<ItemInfoResponse.MemberInfo> assignedToList = new ArrayList<>();
+            for (JsonNode member : assignedToNode) {
+                ItemInfoResponse.MemberInfo memberInfo = parseMember(member);
+                if (memberInfo != null) {
+                    assignedToList.add(memberInfo);
+                }
+            }
+            itemInfo.setAssignedTo(assignedToList);
+        }
+
+        // 解析submitter
+        JsonNode submitterNode = body.path("submitter");
+        if (!submitterNode.isMissingNode()) {
+            itemInfo.setSubmitter(parseMember(submitterNode));
+        }
+
+        // 解析自定义字段
+        JsonNode customFieldsNode = body.path("customFields");
+        if (customFieldsNode.isArray()) {
+            List<ItemInfoResponse.CustomField> customFields = new ArrayList<>();
+            for (JsonNode field : customFieldsNode) {
+                ItemInfoResponse.CustomField customField = new ItemInfoResponse.CustomField();
+                customField.setName(field.path("name").asText(null));
+                customField.setLabel(field.path("label").asText(null));
+
+                JsonNode valuesNode = field.path("values");
+                if (valuesNode.isArray()) {
+                    List<ItemInfoResponse.MemberInfo> values = new ArrayList<>();
+                    for (JsonNode value : valuesNode) {
+                        ItemInfoResponse.MemberInfo memberInfo = parseMember(value);
+                        if (memberInfo != null) {
+                            values.add(memberInfo);
+                        }
+                    }
+                    customField.setValues(values);
+                }
+                customFields.add(customField);
+            }
+            itemInfo.setCustomFields(customFields);
+        }
+
+        // 构建条目链接
+        String itemLink = baseUrl.replace("/api", "") + "/issue/" + itemId;
+        itemInfo.setItemLink(itemLink);
+
+        return itemInfo;
+    }
+
+    /**
+     * 解析成员节点
+     *
+     * @param memberNode JSON节点
+     * @return 成员信息，解析失败返回null
+     */
+    private ItemInfoResponse.MemberInfo parseMember(JsonNode memberNode) {
+        if (memberNode == null || memberNode.isMissingNode()) {
+            return null;
+        }
+
+        ItemInfoResponse.MemberInfo memberInfo = new ItemInfoResponse.MemberInfo();
+        memberInfo.setUserId(memberNode.path("name").asText(null));
+        memberInfo.setName(memberNode.path("name").asText(null));
+        memberInfo.setDisplayName(memberNode.path("displayName").asText(null));
+        return memberInfo;
+    }
+
+    /**
+     * 获取Codebeamer所有用户列表
+     *
+     * 分页获取所有用户，用于userid缓存初始化。
+     *
+     * @return 用户列表
+     */
+    @Override
+    public List<ItemInfoResponse.MemberInfo> getAllUsers() {
+        List<ItemInfoResponse.MemberInfo> allUsers = new ArrayList<>();
+        int pageSize = 500;
+        int page = 1;
+
+        while (true) {
+            String url = baseUrl + "/api/v3/users?page=" + page + "&pageSize=" + pageSize;
+
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    httpHelper.getAuthEntity(),
+                    JsonNode.class
+            );
+
+            JsonNode body = response.getBody();
+            if (body == null) {
+                break;
+            }
+
+            JsonNode usersNode = body.path("users");
+            if (!usersNode.isArray() || usersNode.isEmpty()) {
+                break;
+            }
+
+            for (JsonNode user : usersNode) {
+                ItemInfoResponse.MemberInfo memberInfo = new ItemInfoResponse.MemberInfo();
+                memberInfo.setUserId(user.path("name").asText(null));
+                memberInfo.setName(user.path("name").asText(null));
+                memberInfo.setDisplayName(user.path("displayName").asText(null));
+                if (memberInfo.getUserId() != null && !memberInfo.getUserId().isEmpty()) {
+                    allUsers.add(memberInfo);
+                }
+            }
+
+            // 检查是否还有下一页
+            int total = body.path("total").asInt(0);
+            if (allUsers.size() >= total) {
+                break;
+            }
+
+            page++;
+        }
+
+        log.info("获取Codebeamer用户列表完成, 共{}个用户", allUsers.size());
+        return allUsers;
+    }
+
+    /**
      * 获取所有评审
      */
     @Override
