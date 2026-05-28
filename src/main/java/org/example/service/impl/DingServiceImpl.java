@@ -1,3 +1,19 @@
+/*
+ * @Author: 张阳阳 1401459021@qq.com
+ * @Date: 2026-05-12 16:44:10
+ * @LastEditors: 张阳阳 1401459021@qq.com
+ * @LastEditTime: 2026-05-28 11:20:30
+ * @FilePath: \cf-cb\src\main\java\org\example\service\impl\DingServiceImpl.java
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+/*
+ * @Author: 张阳阳 1401459021@qq.com
+ * @Date: 2026-05-12 16:44:10
+ * @LastEditors: 张阳阳 1401459021@qq.com
+ * @LastEditTime: 2026-05-26 21:08:45
+ * @FilePath: \cf-cb\src\main\java\org\example\service\impl\DingServiceImpl.java
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package org.example.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,16 +45,14 @@ public class DingServiceImpl implements DingService {
     }
 
     @Override
-    public void sendMessage(String userIds, String title, String markdown, String singleTitle, String singleUrl) {
+    public void sendMessage(String userIds, String title, String markdown) {
         String accessToken = getAccessToken();
         Map<String, Object> actionCard = new HashMap<>();
         actionCard.put("title", title);
-        actionCard.put("markdown", markdown);
-        actionCard.put("single_title", singleTitle);
-        actionCard.put("single_url", singleUrl);
+        actionCard.put("text", markdown);
         Map<String, Object> msg = new HashMap<>();
-        msg.put("msgtype", "action_card");
-        msg.put("action_card", actionCard);
+        msg.put("msgtype", "markdown");
+        msg.put("markdown", actionCard);
         Map<String, Object> req = new HashMap<>();
         req.put("agent_id", Long.valueOf(dingProperties.getAgentId()));
         req.put("userid_list", userIds);
@@ -48,35 +62,25 @@ public class DingServiceImpl implements DingService {
     }
 
     @Override
-    public String queryOrganizationManager(String employeeId) {
+    public String getUserInfo(String userId) {
+        String accessToken = getAccessToken();
+        String url = dingProperties.getUserInfoUrl() + "?access_token=" + accessToken;
         Map<String, Object> req = new HashMap<>();
-        req.put("employeeId", employeeId);
-        String raw = postForString(dingProperties.getOrganizationWebhookUrl(), req);
-        try {
-            JsonNode node = objectMapper.readTree(raw);
-            if (node.isArray() && !node.isEmpty()) {
-                JsonNode first = node.get(0);
-                return joinIds(first.path("sectionManager"), first.path("departmentManager"), first.path("director"));
-            }
-            if (node.isObject()) {
-                return joinIds(node.path("sectionManager"), node.path("departmentManager"), node.path("director"));
-            }
-        } catch (Exception ignored) {
+        req.put("userid", userId);
+        req.put("language", "zh_CN");
+        Map<?, ?> resp = postForObject(url, req, Map.class);
+        Integer errcode = (Integer) resp.get("errcode");
+        if (errcode == null || errcode != 0) {
+            return null;
         }
-        return "";
+        Map<?, ?> result = (Map<?, ?>) resp.get("result");
+        if (result == null) {
+            return null;
+        }
+        String name = (String) result.get("name");
+        return name;
     }
 
-    private String joinIds(JsonNode... nodes) {
-        StringBuilder sb = new StringBuilder();
-        for (JsonNode node : nodes) {
-            String value = node.isMissingNode() || node.isNull() ? "" : node.asText("");
-            if (!value.isBlank()) {
-                if (sb.length() > 0) sb.append(',');
-                sb.append(value);
-            }
-        }
-        return sb.toString();
-    }
 
     private <T> T postForObject(String url, Object body, Class<T> type) {
         HttpHeaders headers = new HttpHeaders();
@@ -86,11 +90,5 @@ public class DingServiceImpl implements DingService {
         return response.getBody();
     }
 
-    private String postForString(String url, Object body) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Object> entity = new HttpEntity<>(body, headers);
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-        return response.getBody();
-    }
+    
 }

@@ -1,30 +1,23 @@
 codebeamer:
-  #  hirain环境
-  base-url: https://cb-trial.hirain.com/cb/api
-  username: yangyang.zhang
+  base-url-prefix: https://cb-trial.hirain.com
+#  username: yangyang.zhang
+  username: 271824611524632704
   password: yangyang.zhang
 
   #  春风测试环境
-#  base-url: http://192.168.101.174:8080/cb/api
+#  base-url-prefix: http://192.168.101.174:8080
 #  username: 271824611524632704
 #  password: cbroot
 
-  # 春风正式环境
-#    base-url: https://alm-cb.cfmoto.com:8090/cb/api
-#    username: Hirain01
-#    password: Hirain01
-
 
 ding:
+  base-url-prefix: https://api.dingtalk.com
+  message-base-url-prefix: https://oapi.dingtalk.com
+  client-base-url-prefix: http://10.32.4.50:10600/papi/openapi
   corp-id: 9420b0c0840fc1e421c4d045d50c3dc
   app-key: dingen7uf61izibidx34
   app-secret: oRrTEcxXX-BmtTouwsDBH_6lR4mIe5hHQ9QtTDG2cvD0uJlARHzIk_RuujvlIzmD
   agent-id: 4182157252
-  access-token-url: https://api.dingtalk.com/v1.0/oauth2/accessToken
-  message-url: https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2
-  client-authorize-url: http://10.32.4.50:10600/papi/openapi/oauth2/authorize
-  client-access-token-url: http://10.32.4.50:10600/papi/openapi/oauth2/access_token
-  organization-webhook-url: http://10.32.4.50:10600/papi/openapi/api/open-esb/server/webhook/trigger/
   # 临期*天提醒默认值
   near-expired-default: 5
   # 超期*天提醒部长
@@ -33,9 +26,6 @@ ding:
   overdue-director-default: 5
   # 超期*天后每周一提醒
   overdue-weekly: 8
-
-review:
-  list-url: https://cb-trial.hirain.com/cb/api/reviews/list
 
 server:
   port: 8081

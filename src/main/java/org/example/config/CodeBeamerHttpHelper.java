@@ -1,6 +1,5 @@
 package org.example.config;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
@@ -11,17 +10,17 @@ import java.util.Base64;
 @Component
 public class CodeBeamerHttpHelper {
 
-    @Value("${codebeamer.username}")
-    private String username;
+    private final CBProperties cbProperties;
 
-    @Value("${codebeamer.password}")
-    private String password;
+    public CodeBeamerHttpHelper(CBProperties cbProperties) {
+        this.cbProperties = cbProperties;
+    }
 
     /**
      * 获取带 Basic Auth 的 HttpHeaders
      */
     public HttpHeaders getAuthHeaders() {
-        String auth = username + ":" + password;
+        String auth = cbProperties.getUsername() + ":" + cbProperties.getPassword();
         String encodedAuth = Base64.getEncoder()
                 .encodeToString(auth.getBytes(StandardCharsets.UTF_8));
 

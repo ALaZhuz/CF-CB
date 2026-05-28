@@ -1,8 +1,12 @@
 package org.example.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.config.CBProperties;
 import org.example.config.CodeBeamerHttpHelper;
+import org.example.model.cb.ReviewItem;
+import org.example.model.cb.ReviewListResponse;
 import org.example.model.dto.request.AssociationsRequest;
 import org.example.model.dto.request.TrackerItemFieldRequest;
 import org.example.model.dto.response.*;
@@ -24,15 +28,16 @@ import java.util.stream.Collectors;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class CBSwaggerServiceImpl implements CBSwaggerService {
-    @Value("${codebeamer.base-url}")
-    private String baseUrl;
 
-    @Autowired
-    private RestTemplate restTemplate;
+    private final CBProperties cbProperties;
+    private final RestTemplate restTemplate;
+    private final CodeBeamerHttpHelper httpHelper;
 
-    @Autowired
-    private CodeBeamerHttpHelper httpHelper;
+    private String baseUrl() {
+        return cbProperties.getBaseUrl();
+    }
 
     /**
      * Report-query cbQL语句查询
@@ -44,7 +49,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     public CBQueryResponse query(int page, int pageSize, String queryString) {
 
-        String url = baseUrl + "/v3/items/query";
+        String url = baseUrl() + "/v3/items/query";
 
         // 构建请求体（用Map，不需要单独建类）
         Map<String, Object> requestBody = new HashMap<>();
@@ -100,7 +105,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     @Override
     public CBTrackerItemsResponse getAllTrackerItems(int page, int pageSize, int trackerId) {
-        String url = baseUrl + "/v3/trackers/" + trackerId + "/items?page=" + page + "&pageSize=" + pageSize;
+        String url = baseUrl() + "/v3/trackers/" + trackerId + "/items?page=" + page + "&pageSize=" + pageSize;
 
         ResponseEntity<CBTrackerItemsResponse> response = restTemplate.exchange(
                 url,
@@ -148,7 +153,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     @Override
     public Map<Integer, List<Integer>> getMultiRelationMap(AssociationsRequest associationsRequest, RelationType relationType) {
-        String url = baseUrl + "/v3/items/relations";
+        String url = baseUrl() + "/v3/items/relations";
         HttpHeaders headers = httpHelper.getAuthHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -203,7 +208,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
         while (true) {
             String url = String.format("%s/v3/items/%d/relations?page=%d&pageSize=%d",
-                    baseUrl, id, page, pageSize);
+                    baseUrl(), id, page, pageSize);
 
             ResponseEntity<CBRelationsResponse> response = restTemplate.exchange(
                     url,
@@ -278,7 +283,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     @Override
     public CBTrackerConfigurationResponse getTrackerConfiguration(Integer trackerId) {
-        String url = baseUrl + "/v3/tracker/" + trackerId + "/configuration";
+        String url = baseUrl() + "/v3/tracker/" + trackerId + "/configuration";
 
         ResponseEntity<JsonNode> response = restTemplate.exchange(
                 url,
@@ -334,7 +339,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     @Override
     public CBTrackerConfigurationResponse getTrackerField(Integer trackerId, Integer fieldId) {
-        String url = baseUrl + "/v3/trackers/" + trackerId + "/fields/" + fieldId;
+        String url = baseUrl() + "/v3/trackers/" + trackerId + "/fields/" + fieldId;
 
         ResponseEntity<JsonNode> response = restTemplate.exchange(
                 url,
@@ -382,7 +387,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      */
     @Override
     public CBTrackerInfoResponse getProjectInfo(Integer trackerId) {
-        String url = baseUrl + "/v3/trackers/" + trackerId;
+        String url = baseUrl() + "/v3/trackers/" + trackerId;
 
         ResponseEntity<CBTrackerInfoResponse> response = restTemplate.exchange(
                 url,
@@ -398,7 +403,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
     @Override
     public List<String> getUpStreamNames(Integer trackerItemId) {
-        String url = baseUrl + "/v3/items/" + trackerItemId;
+        String url = baseUrl() + "/v3/items/" + trackerItemId;
 
         ResponseEntity<JsonNode> response = restTemplate.exchange(
                 url,
@@ -430,7 +435,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
     @Override
     public void putTrackerItemField(TrackerItemFieldRequest req, Integer id) {
-        String url = baseUrl + "/v3/items/" + id + "/fields?quietMode=false";
+        String url = baseUrl() + "/v3/items/" + id + "/fields?quietMode=false";
         HttpHeaders headers = httpHelper.getAuthHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -446,5 +451,68 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         if (response.getBody() == null) {
             throw new RuntimeException("更新项目跟踪器自定义追溯字段失败, 条目Id：" + id);
         }
+    }
+
+    /**
+     * 获取所有评审
+     */
+    @Override
+    public List<ReviewItem> fetchAllReviews() {
+        List<ReviewItem> all = new ArrayList<>();
+        int pageNo = 1;
+        int pageSize = 100;
+        while (true) {
+            ReviewListResponse response = fetchReviewPage(pageNo, pageSize);
+            if (response == null || response.getGroupedReviews() == null || response.getGroupedReviews().isEmpty()) {
+                break;
+            }
+            for (ReviewListResponse.GroupedReview groupedReview : response.getGroupedReviews()) {
+                if (groupedReview.getListOfReviewItems() == null) continue;
+                for (ReviewListResponse.ReviewItemWrap wrap : groupedReview.getListOfReviewItems()) {
+                    if (wrap != null && wrap.getReview() != null) {
+                        ReviewItem item = new ReviewItem();
+                        item.setReview(wrap.getReview());
+                        item.setReviewer(wrap.getReviewer());
+                        item.setModerator(wrap.getModerator());
+                        all.add(item);
+                    }
+                }
+            }
+            if (all.size() >= response.getTotalCount()) {
+                break;
+            }
+            pageNo++;
+        }
+        return all;
+    }
+
+    private ReviewListResponse fetchReviewPage(int pageNo, int pageSize) {
+        String url = baseUrl() + "/reviews/list";
+        Map<String, Object> req = Map.of(
+                "grouping", "None",
+                "pageNo", pageNo,
+                "pageSize", pageSize
+        );
+        HttpHeaders headers = httpHelper.getAuthHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<ReviewListResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                new HttpEntity<>(req, headers),
+                ReviewListResponse.class
+        );
+        return response.getBody();
+    }
+
+    @Override
+    public ReviewStatisticsResponse getReviewStatistics(String reviewId) {
+        String url = baseUrl() + "/reviews/" + reviewId + "/reviewStatistics";
+        ResponseEntity<ReviewStatisticsResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                httpHelper.getAuthEntity(),
+                ReviewStatisticsResponse.class
+        );
+        return response.getBody();
     }
 }

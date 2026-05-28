@@ -1,11 +1,9 @@
 package org.example.service;
 
+import org.example.model.cb.ReviewItem;
 import org.example.model.dto.request.AssociationsRequest;
 import org.example.model.dto.request.TrackerItemFieldRequest;
-import org.example.model.dto.response.CBQueryResponse;
-import org.example.model.dto.response.CBTrackerConfigurationResponse;
-import org.example.model.dto.response.CBTrackerInfoResponse;
-import org.example.model.dto.response.CBTrackerItemsResponse;
+import org.example.model.dto.response.*;
 import org.example.model.enums.RelationType;
 
 import java.util.List;
@@ -32,6 +30,16 @@ public interface CBSwaggerService {
      * @return
      */
     CBTrackerItemsResponse getAllTrackerItems(int page, int pageSize, int trackerId);
+
+    /**
+     * 查询所有评审
+     */
+    List<ReviewItem> fetchAllReviews();
+
+    /**
+     * 获取单个评审的统计信息
+     */
+    ReviewStatisticsResponse getReviewStatistics(String reviewId);
 
     /**
      * POST-批量获取链接关系，返回<id,outgoingAssociations id（唯一）> Map
@@ -91,18 +99,4 @@ public interface CBSwaggerService {
      * @return
      */
     void putTrackerItemField(TrackerItemFieldRequest req, Integer id);
-
-    /**
-     * 查询所有评审
-     * state:
-     * 开启--OPEN
-     * 关闭--CLOSED
-     */
-
-
-    /**
-     * 删除Tracker条目
-     */
-
-
 }

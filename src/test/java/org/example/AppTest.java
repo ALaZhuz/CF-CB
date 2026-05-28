@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.model.dto.request.TrackerItemRequest;
 import org.example.model.dto.response.DownstreamGroupResponse;
 import org.example.model.dto.response.TrackerItemGroupResponse;
+import org.example.scheduler.ReviewNotifyScheduler;
 import org.example.service.TrackerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,19 @@ import java.util.List;
 class AppTest {
     @Autowired
     private TrackerService trackerService;
+
+    @Autowired
+    private ReviewNotifyScheduler reviewNotifyScheduler;
+
+    @Test
+    void testThirtyMinuteScheduleTask() {
+        reviewNotifyScheduler.runThirtyMinuteTasks();
+    }
+
+    @Test
+    void testEightOClockTask(){
+        reviewNotifyScheduler.runEightOClockTasks();
+    }
 
     @Test
     void testDownstreamReferences() {

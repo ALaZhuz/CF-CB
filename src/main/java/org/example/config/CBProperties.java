@@ -8,7 +8,11 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "codebeamer")
 public class CBProperties {
-    private String baseUrl;
+    private String baseUrlPrefix;
     private String username;
     private String password;
+
+    public String getBaseUrl() {
+        return baseUrlPrefix + "/cb/api";
+    }
 }
