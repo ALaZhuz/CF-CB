@@ -14,7 +14,7 @@ import java.sql.Statement;
 @Configuration
 public class SQLiteConfig {
 
-    @Value("${review.sqlite-path:./data/review-notify.db}")
+    @Value("${sqlite.review-database-path:./data/review-notify.db}")
     private String sqlitePath;
 
     @Bean

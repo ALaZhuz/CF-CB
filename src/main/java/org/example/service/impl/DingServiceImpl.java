@@ -45,14 +45,17 @@ public class DingServiceImpl implements DingService {
         return resp == null || resp.get("accessToken") == null ? "" : resp.get("accessToken").toString();
     }
 
+    @Override
+    public void sendMessage(String userIds, String title, String markdown, String singleTitle, String singleUrl) {
+
+    }
+
     /**
      * 发送ActionCard消息（企业钉钉）
      *
      * @param userIds 接收用户ID列表，逗号分隔
      * @param title 消息标题
      * @param markdown Markdown内容
-     * @param singleTitle 按钮标题
-     * @param singleUrl 按钮跳转链接
      */
 
     public void sendMessage(String userIds, String title, String markdown) {
@@ -90,6 +93,11 @@ public class DingServiceImpl implements DingService {
             // 企业钉钉模式
             sendEnterpriseTextMessage(userIds, content);
         }
+    }
+
+    @Override
+    public String queryOrganizationManager(String employeeId) {
+        return null;
     }
 
     /**
@@ -144,7 +152,7 @@ public class DingServiceImpl implements DingService {
     /**
      * 查询组织管理者
      *
-     * @param employeeId 员工ID
+     * @param userId 员工ID
      * @return 管理者ID列表，逗号分隔
      */
     @Override

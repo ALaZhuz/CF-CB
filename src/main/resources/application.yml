@@ -39,3 +39,4 @@ server:
 
 sqlite:
   database-path: data/notification.db
+  review-database-path: data/review-notify.db

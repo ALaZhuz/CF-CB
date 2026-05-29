@@ -467,7 +467,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             return null;
         }
 
-        String url = baseUrl + "/api/v3/items/" + itemId;
+        String url = baseUrl() + "/v3/items/" + itemId;
 
         ResponseEntity<JsonNode> response = restTemplate.exchange(
                 url,
@@ -585,7 +585,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         }
 
         // 构建条目链接
-        String itemLink = baseUrl.replace("/api", "") + "/issue/" + itemId;
+        String itemLink = baseUrl() + "/issue/" + itemId;
         itemInfo.setItemLink(itemLink);
 
         return itemInfo;
@@ -623,7 +623,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         int page = 1;
 
         while (true) {
-            String url = baseUrl + "/api/v3/users?page=" + page + "&pageSize=" + pageSize;
+            String url = baseUrl() + "/v3/users?page=" + page + "&pageSize=" + pageSize;
 
             ResponseEntity<JsonNode> response = restTemplate.exchange(
                     url,
