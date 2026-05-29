@@ -12,7 +12,7 @@ codebeamer:
 #  username: yangyang.zhang
   username: 271824611524632704
   password: yangyang.zhang
-#  base-url: https://cb-pmt.hirain.com:8443/cb
+# base-url-prefix: https://cb-pmt.hirain.com:8443
 #  username: zhangjiamin.zhong
 #  password: zhangjiamin.zhong
 
@@ -22,14 +22,17 @@ codebeamer:
 #  password: cbroot
 
 
-ding:
+dingtalk:
+  # 钉钉接口
   base-url-prefix: https://api.dingtalk.com
   message-base-url-prefix: https://oapi.dingtalk.com
-  client-base-url-prefix: http://10.32.4.50:10600/papi/openapi
-  corp-id: 9420b0c0840fc1e421c4d045d50c3dc
   app-key: dingen7uf61izibidx34
   app-secret: oRrTEcxXX-BmtTouwsDBH_6lR4mIe5hHQ9QtTDG2cvD0uJlARHzIk_RuujvlIzmD
   agent-id: 4182157252
+  # 春风
+  client-base-url-prefix: http://10.32.4.50:10600/papi/openapi
+  corp-id: 9420b0c0840fc1e421c4d045d50c3dc
+
   # 临期*天提醒默认值
   near-expired-default: 5
   # 超期*天提醒部长
@@ -38,6 +41,10 @@ ding:
   overdue-director-default: 5
   # 超期*天后每周一提醒
   overdue-weekly: 8
+  # 每天定时任务提醒，默认8点
+  notify-cron: "0 0 8 * * ?"
+  # 轮询任务，默认30分钟
+  fixed-delay: 30m
 
 server:
   port: 8081

@@ -34,13 +34,13 @@ public class ReviewNotificationServiceImpl {
     private final CBSwaggerService cbSwaggerService;
     private final ReviewNotifyRepository repository;
     private final ReviewProperties reviewProperties;
-    @Value("${ding.overdue-weekly}")
+    @Value("${dingtalk.overdue-weekly}")
     private int overdueWeekly;
-    @Value("${ding.overdue-minister-default}")
+    @Value("${dingtalk.overdue-minister-default}")
     private int overdueMinisterDefault;
-    @Value("${ding.overdue-director-default}")
+    @Value("${dingtalk.overdue-director-default}")
     private int overdueDirectorDefault;
-    @Value("${ding.near-expired-default}")
+    @Value("${dingtalk.near-expired-default}")
     private int nearExpiredDefault;
 
     public void runEightOClockTasks() {

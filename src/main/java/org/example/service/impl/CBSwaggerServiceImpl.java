@@ -653,7 +653,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         }
 
         // 构建条目链接
-        String itemLink = baseUrl() + "/issue/" + itemId;
+        String itemLink = baseUrl().replace("/api", "") + "/issue/" + itemId;
         itemInfo.setItemLink(itemLink);
 
         return itemInfo;

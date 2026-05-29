@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
  */
 @Data
 @Component
-@ConfigurationProperties(prefix = "ding")
+@ConfigurationProperties(prefix = "dingtalk")
 public class DingProperties {
 
     /** 企业ID */
