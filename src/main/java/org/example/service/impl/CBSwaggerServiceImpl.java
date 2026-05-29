@@ -559,6 +559,65 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setSubmitter(parseMember(submitterNode));
         }
 
+        // 解析createdBy
+        JsonNode createdByNode = body.path("createdBy");
+        if (!createdByNode.isMissingNode()) {
+            itemInfo.setCreatedBy(parseMember(createdByNode));
+        }
+
+        // 解析modifiedBy
+        JsonNode modifiedByNode = body.path("modifiedBy");
+        if (!modifiedByNode.isMissingNode()) {
+            itemInfo.setModifiedBy(parseMember(modifiedByNode));
+        }
+
+        // 解析priority（单个ChoiceOption）
+        JsonNode priorityNode = body.path("priority");
+        if (!priorityNode.isMissingNode()) {
+            ItemInfoResponse.ChoiceOption priority = parseChoiceOption(priorityNode);
+            itemInfo.setPriority(priority);
+        }
+
+        // 解析categories（列表）
+        JsonNode categoriesNode = body.path("categories");
+        if (categoriesNode.isArray()) {
+            List<ItemInfoResponse.ChoiceOption> categories = new ArrayList<>();
+            for (JsonNode category : categoriesNode) {
+                categories.add(parseChoiceOption(category));
+            }
+            itemInfo.setCategories(categories);
+        }
+
+        // 解析severities（列表）
+        JsonNode severitiesNode = body.path("severities");
+        if (severitiesNode.isArray()) {
+            List<ItemInfoResponse.ChoiceOption> severities = new ArrayList<>();
+            for (JsonNode severity : severitiesNode) {
+                severities.add(parseChoiceOption(severity));
+            }
+            itemInfo.setSeverities(severities);
+        }
+
+        // 解析teams（列表）
+        JsonNode teamsNode = body.path("teams");
+        if (teamsNode.isArray()) {
+            List<ItemInfoResponse.ChoiceOption> teams = new ArrayList<>();
+            for (JsonNode team : teamsNode) {
+                teams.add(parseChoiceOption(team));
+            }
+            itemInfo.setTeams(teams);
+        }
+
+        // 解析versions（列表）
+        JsonNode versionsNode = body.path("versions");
+        if (versionsNode.isArray()) {
+            List<ItemInfoResponse.ChoiceOption> versions = new ArrayList<>();
+            for (JsonNode version : versionsNode) {
+                versions.add(parseChoiceOption(version));
+            }
+            itemInfo.setVersions(versions);
+        }
+
         // 解析自定义字段
         JsonNode customFieldsNode = body.path("customFields");
         if (customFieldsNode.isArray()) {
@@ -567,7 +626,9 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 ItemInfoResponse.CustomField customField = new ItemInfoResponse.CustomField();
                 customField.setName(field.path("name").asText(null));
                 customField.setLabel(field.path("label").asText(null));
+                customField.setType(field.path("type").asText(null));
 
+                // 解析 values 字段（成员类型）
                 JsonNode valuesNode = field.path("values");
                 if (valuesNode.isArray()) {
                     List<ItemInfoResponse.MemberInfo> values = new ArrayList<>();
@@ -579,6 +640,13 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                     }
                     customField.setValues(values);
                 }
+
+                // 解析 value 字段（文本、日期、选择等类型）
+                JsonNode valueNode = field.path("value");
+                if (!valueNode.isMissingNode() && !valueNode.isNull()) {
+                    customField.setValue(valueNode.asText(null));
+                }
+
                 customFields.add(customField);
             }
             itemInfo.setCustomFields(customFields);
@@ -606,7 +674,26 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         memberInfo.setUserId(memberNode.path("name").asText(null));
         memberInfo.setName(memberNode.path("name").asText(null));
         memberInfo.setDisplayName(memberNode.path("displayName").asText(null));
+        memberInfo.setEmail(memberNode.path("email").asText(null));
         return memberInfo;
+    }
+
+    /**
+     * 解析选择选项节点
+     *
+     * @param optionNode JSON节点
+     * @return 选择选项，解析失败返回null
+     */
+    private ItemInfoResponse.ChoiceOption parseChoiceOption(JsonNode optionNode) {
+        if (optionNode == null || optionNode.isMissingNode()) {
+            return null;
+        }
+
+        ItemInfoResponse.ChoiceOption option = new ItemInfoResponse.ChoiceOption();
+        option.setId(optionNode.path("id").asInt());
+        option.setName(optionNode.path("name").asText(null));
+        option.setType(optionNode.path("type").asText(null));
+        return option;
     }
 
     /**

@@ -2,6 +2,8 @@ package org.example.db.mapper;
 
 import org.apache.ibatis.annotations.*;
 import org.example.db.entity.ItemStateRecord;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -17,13 +19,14 @@ import java.util.List;
 public interface ItemStateRecordMapper {
 
     /**
-     * 插入条目状态记录
+     * 插入或替换条目状态记录
      *
-     * 当条目进入目标状态时调用，记录条目的状态信息。
+     * 当条目进入目标状态时调用。
+     * 如果item_id已存在，则替换旧记录（SQLite UPSERT）。
      *
      * @param record 条目状态记录实体
      */
-    @Insert("INSERT INTO item_state_record (item_id, item_name, tracker_id, project_id, target_state, enter_state_time, last_notify_time) " +
+    @Insert("INSERT OR REPLACE INTO item_state_record (item_id, item_name, tracker_id, project_id, target_state, enter_state_time, last_notify_time) " +
             "VALUES (#{itemId}, #{itemName}, #{trackerId}, #{projectId}, #{targetState}, #{enterStateTime}, #{lastNotifyTime})")
     void insert(ItemStateRecord record);
 
@@ -64,8 +67,8 @@ public interface ItemStateRecordMapper {
      * 发送通知成功后调用，更新last_notify_time字段。
      *
      * @param itemId Codebeamer条目ID
-     * @param lastNotifyTime 上次通知时间字符串
+     * @param lastNotifyTime 上次通知时间
      */
     @Update("UPDATE item_state_record SET last_notify_time = #{lastNotifyTime} WHERE item_id = #{itemId}")
-    void updateLastNotifyTime(@Param("itemId") Integer itemId, @Param("lastNotifyTime") String lastNotifyTime);
+    void updateLastNotifyTime(@Param("itemId") Integer itemId, @Param("lastNotifyTime") LocalDateTime lastNotifyTime);
 }

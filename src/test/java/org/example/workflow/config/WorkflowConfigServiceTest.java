@@ -412,7 +412,7 @@ class WorkflowConfigServiceTest {
 
         workflowProperties.getExtraFields().setGlobal(Arrays.asList(field1, field2));
 
-        List<ExtraField> result = workflowConfigService.getExtraFields(null);
+        List<ExtraField> result = workflowConfigService.getExtraFields(null, null);
         assertEquals(2, result.size());
         assertEquals("priority", result.get(0).getField());
         assertEquals("优先级", result.get(0).getLabel());
@@ -435,13 +435,90 @@ class WorkflowConfigServiceTest {
         workflowProperties.getExtraFields().getProjects().put("100", Collections.singletonList(projectField));
 
         // 项目级完全覆盖全局
-        List<ExtraField> result100 = workflowConfigService.getExtraFields(100);
+        List<ExtraField> result100 = workflowConfigService.getExtraFields(100, null);
         assertEquals(1, result100.size());
         assertEquals("customer", result100.get(0).getField());
 
         // 其他项目使用全局
-        List<ExtraField> result200 = workflowConfigService.getExtraFields(200);
+        List<ExtraField> result200 = workflowConfigService.getExtraFields(200, null);
         assertEquals(1, result200.size());
         assertEquals("priority", result200.get(0).getField());
+    }
+
+    /**
+     * 场景16: extra-fields tracker级覆盖项目级
+     */
+    @Test
+    @DisplayName("extra-fields tracker级覆盖项目级")
+    void testGetExtraFields_TrackerOverride() {
+        // 全局配置
+        ExtraField globalField = new ExtraField();
+        globalField.setField("priority");
+        globalField.setLabel("优先级");
+        workflowProperties.getExtraFields().setGlobal(Collections.singletonList(globalField));
+
+        // 项目级配置
+        ExtraField projectField = new ExtraField();
+        projectField.setField("customer");
+        projectField.setLabel("客户");
+        workflowProperties.getExtraFields().getProjects().put("100", Collections.singletonList(projectField));
+
+        // 项目配置
+        ProjectConfig project = createProjectConfig(100, "测试项目");
+
+        // tracker级配置
+        ExtraField trackerField = new ExtraField();
+        trackerField.setField("dueDate");
+        trackerField.setLabel("截止日期");
+
+        ProjectConfig.TrackerConfig trackerConfig = new ProjectConfig.TrackerConfig();
+        trackerConfig.setTrackerId(111);
+        trackerConfig.setExtraFields(Collections.singletonList(trackerField));
+
+        project.setTrackers(Collections.singletonList(trackerConfig));
+        workflowProperties.setProjects(Collections.singletonList(project));
+
+        // tracker级完全覆盖项目级
+        List<ExtraField> resultTracker = workflowConfigService.getExtraFields(100, 111);
+        assertEquals(1, resultTracker.size());
+        assertEquals("dueDate", resultTracker.get(0).getField());
+
+        // 其他tracker使用项目级
+        List<ExtraField> resultOtherTracker = workflowConfigService.getExtraFields(100, 222);
+        assertEquals(1, resultOtherTracker.size());
+        assertEquals("customer", resultOtherTracker.get(0).getField());
+
+        // 无trackerId参数使用项目级
+        List<ExtraField> resultNoTracker = workflowConfigService.getExtraFields(100, null);
+        assertEquals(1, resultNoTracker.size());
+        assertEquals("customer", resultNoTracker.get(0).getField());
+    }
+
+    /**
+     * 场景17: extra-fields tracker级空列表（不显示任何额外字段）
+     */
+    @Test
+    @DisplayName("extra-fields tracker级空列表")
+    void testGetExtraFields_TrackerEmptyList() {
+        // 全局配置
+        ExtraField globalField = new ExtraField();
+        globalField.setField("priority");
+        globalField.setLabel("优先级");
+        workflowProperties.getExtraFields().setGlobal(Collections.singletonList(globalField));
+
+        // 项目配置
+        ProjectConfig project = createProjectConfig(100, "测试项目");
+
+        // tracker级配置为空列表（显式设置为无额外字段）
+        ProjectConfig.TrackerConfig trackerConfig = new ProjectConfig.TrackerConfig();
+        trackerConfig.setTrackerId(111);
+        trackerConfig.setExtraFields(Collections.emptyList());
+
+        project.setTrackers(Collections.singletonList(trackerConfig));
+        workflowProperties.setProjects(Collections.singletonList(project));
+
+        // tracker级空列表，返回空列表
+        List<ExtraField> result = workflowConfigService.getExtraFields(100, 111);
+        assertEquals(0, result.size());
     }
 }
