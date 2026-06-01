@@ -6,15 +6,33 @@
   </component>
   <component name="DBNavigator.Project.DataEditorManager">
     <record-view-column-sorting-type value="BY_INDEX" />
-    <value-preview-text-wrapping value="true" />
+    <value-preview-text-wrapping value="false" />
     <value-preview-pinned value="false" />
+  </component>
+  <component name="DBNavigator.Project.DataExportManager">
+    <export-instructions>
+      <create-header value="true" />
+      <friendly-headers value="false" />
+      <quote-values-containing-separator value="true" />
+      <quote-all-values value="false" />
+      <value-separator value="" />
+      <begin-quote value="&quot;" />
+      <end-quote value="&quot;" />
+      <file-name value="" />
+      <file-location value="" />
+      <scope value="GLOBAL" />
+      <destination value="FILE" />
+      <format value="EXCEL" />
+      <charset value="GBK" />
+      <charset value="GBK" />
+    </export-instructions>
   </component>
   <component name="DBNavigator.Project.DatabaseAssistantManager">
     <assistants>
-      <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="PUBLIC" default-profile-name="" selected-chat-id="" availability="AVAILABLE" acknowledgement="NONE" selected="true">
+      <assistant-state connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" assistant-type="PUBLIC" default-profile-name="" selected-chat-id="" availability="AVAILABLE" acknowledgement="NONE" selected="true">
         <tools />
       </assistant-state>
-      <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
+      <assistant-state connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
         <tools />
       </assistant-state>
     </assistants>
@@ -29,7 +47,7 @@
     <loaded-nodes />
   </component>
   <component name="DBNavigator.Project.DatabaseConsoleManager">
-    <connection id="0ca97f50-828f-447b-82d8-e728ab034745">
+    <connection id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990">
       <console name="Connection" type="STANDARD" schema="main" session="Main" />
     </connection>
   </component>
@@ -43,14 +61,17 @@
     <prerequisites />
   </component>
   <component name="DBNavigator.Project.DatabaseSessionManager">
-    <connection id="0ca97f50-828f-447b-82d8-e728ab034745" />
+    <connection id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" />
   </component>
   <component name="DBNavigator.Project.DatasetFilterManager">
-    <filter-actions connection-id="0ca97f50-828f-447b-82d8-e728ab034745" dataset="main.review_notify" active-filter-id="">
-      <filter id="48f5f214-3b70-434f-83d2-ca79d8ef5645" name="Filter" temporary="false" custom-name="false" type="basic" join-type="AND">
-        <condition column="review_id" operator="=" value="" active="true" />
-      </filter>
-    </filter-actions>
+    <filter-actions connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" dataset="main.notify_log" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" dataset="main.sqlite_sequence" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" dataset="main.config_meta" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" dataset="main.org_cache" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" dataset="main.item_state_record" active-filter-id="EMPTY_FILTER" />
+  </component>
+  <component name="DBNavigator.Project.ExecutionManager">
+    <retain-sticky-names value="false" />
   </component>
   <component name="DBNavigator.Project.ObjectQuickFilterManager">
     <last-used-operator value="EQUAL" />
@@ -58,7 +79,7 @@
   </component>
   <component name="DBNavigator.Project.Settings">
     <connections>
-      <connection source-id="" id="0ca97f50-828f-447b-82d8-e728ab034745" active="true" signed="true">
+      <connection source-id="" id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" active="true" signed="true">
         <database>
           <name value="Connection" />
           <description value="" />
@@ -78,7 +99,8 @@
           <protocol value="" />
           <url-parameters />
           <files>
-            <file path="D:\IdeaProjects\cf-cb\data\review-notify.db" schema="main" />
+            <file path="D:\CF\data\review-notify.db" schema="review-notify" />
+            <file path="$PROJECT_DIR$/data/notification.db" schema="main" />
           </files>
           <type value="NONE" />
           <user value="" />
@@ -616,5 +638,9 @@
         </visibility-settings>
       </environment>
     </general-settings>
+  </component>
+  <component name="DBNavigator.Project.StatementExecutionManager">
+    <execution-variables />
+    <execution-variable-types />
   </component>
 </project>

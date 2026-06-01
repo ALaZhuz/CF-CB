@@ -32,32 +32,12 @@ public class WorkflowConfigService {
     private final WorkflowProperties workflowProperties;
 
     /**
-     * 启动时打印配置内容，用于调试
+     * 获取WorkflowProperties对象
+     *
+     * @return WorkflowProperties
      */
-    @javax.annotation.PostConstruct
-    public void debugConfig() {
-        log.info("=== WorkflowProperties 配置加载调试 ===");
-        log.info("projects 数量: {}", workflowProperties.getProjects().size());
-
-        for (ProjectConfig project : workflowProperties.getProjects()) {
-            log.info("项目 {}: projectId={}, trackers数量={}",
-                    project.getProjectName(), project.getProjectId(),
-                    project.getTrackers() != null ? project.getTrackers().size() : 0);
-
-            if (project.getTrackers() != null) {
-                for (ProjectConfig.TrackerConfig tracker : project.getTrackers()) {
-                    log.info("  trackerId={}, extraFields={}",
-                            tracker.getTrackerId(),
-                            tracker.getExtraFields() != null ? tracker.getExtraFields().size() : "null");
-                    if (tracker.getExtraFields() != null) {
-                        for (ExtraField field : tracker.getExtraFields()) {
-                            log.info("    field={}, label={}", field.getField(), field.getLabel());
-                        }
-                    }
-                }
-            }
-        }
-        log.info("=== 配置调试结束 ===");
+    public WorkflowProperties getWorkflowProperties() {
+        return workflowProperties;
     }
 
     /**
@@ -403,7 +383,7 @@ public class WorkflowConfigService {
      * @param projectId 项目ID
      * @return 项目配置，未找到返回null
      */
-    private ProjectConfig findProjectConfig(Integer projectId) {
+    public ProjectConfig findProjectConfig(Integer projectId) {
         if (projectId == null) {
             return null;
         }
@@ -460,7 +440,7 @@ public class WorkflowConfigService {
      * @param projectConfig 项目配置（可为null）
      * @return 工作流模板，未找到返回null
      */
-    private WorkflowTemplate findWorkflowByName(String workflowName, ProjectConfig projectConfig) {
+    public WorkflowTemplate findWorkflowByName(String workflowName, ProjectConfig projectConfig) {
         if (workflowName == null || workflowName.isEmpty()) {
             return null;
         }
@@ -498,5 +478,191 @@ public class WorkflowConfigService {
      */
     public String getPersonalWebhookUrl() {
         return workflowProperties.getDingtalk().getPersonalWebhookUrl();
+    }
+
+    /**
+     * 获取分类配置
+     *
+     * 四级优先级：tracker级 > 项目级tracker-types > 项目级global > 全局级
+     * 如果各级都没有配置，返回 null（表示不启用分类通知）
+     *
+     * @param trackerId tracker ID
+     * @param trackerType tracker 类型（如 "Bug", "Requirement"）
+     * @param projectId 项目ID
+     * @return 分类配置，未配置返回 null
+     */
+    public ClassifyConfig getClassifyConfig(Integer trackerId, String trackerType, Integer projectId) {
+        // 1. 先查找 tracker 级配置（最高优先级）
+        if (projectId != null && trackerId != null) {
+            ProjectConfig projectConfig = findProjectConfig(projectId);
+            if (projectConfig != null) {
+                ClassifyConfig trackerClassifyConfig = findTrackerClassifyConfig(projectConfig, trackerId);
+                if (trackerClassifyConfig != null) {
+                    log.debug("使用tracker级classify-config: projectId={}, trackerId={}", projectId, trackerId);
+                    return trackerClassifyConfig;
+                }
+            }
+        }
+
+        // 2. 查找项目级 tracker-types 配置
+        if (projectId != null && trackerType != null && workflowProperties.getClassifyConfig() != null
+                && workflowProperties.getClassifyConfig().getProjects() != null) {
+            WorkflowProperties.ProjectClassifyConfig projectClassifyConfig = workflowProperties.getClassifyConfig()
+                    .getProjects().get(String.valueOf(projectId));
+            if (projectClassifyConfig != null && projectClassifyConfig.getTrackerTypes() != null) {
+                ClassifyConfig typeClassifyConfig = projectClassifyConfig.getTrackerTypes().get(trackerType);
+                if (typeClassifyConfig != null) {
+                    log.debug("使用项目级tracker-type classify-config: projectId={}, trackerType={}", projectId, trackerType);
+                    return typeClassifyConfig;
+                }
+            }
+        }
+
+        // 3. 查找项目级 global 配置
+        if (projectId != null && workflowProperties.getClassifyConfig() != null
+                && workflowProperties.getClassifyConfig().getProjects() != null) {
+            WorkflowProperties.ProjectClassifyConfig projectClassifyConfig = workflowProperties.getClassifyConfig()
+                    .getProjects().get(String.valueOf(projectId));
+            if (projectClassifyConfig != null && projectClassifyConfig.getGlobal() != null) {
+                log.debug("使用项目级global classify-config: projectId={}", projectId);
+                return projectClassifyConfig.getGlobal();
+            }
+        }
+
+        // 4. 最后使用全局配置（可能为 null，表示不启用分类通知）
+        if (workflowProperties.getClassifyConfig() != null) {
+            return workflowProperties.getClassifyConfig().getGlobal();
+        }
+
+        // 5. 都没有配置，返回 null
+        return null;
+    }
+
+    /**
+     * 在项目配置中查找 tracker 级 classify-config
+     *
+     * @param projectConfig 项目配置
+     * @param trackerId tracker ID
+     * @return 分类配置，未找到返回 null
+     */
+    private ClassifyConfig findTrackerClassifyConfig(ProjectConfig projectConfig, Integer trackerId) {
+        if (projectConfig.getTrackers() == null) {
+            return null;
+        }
+
+        Optional<ProjectConfig.TrackerConfig> trackerConfig = projectConfig.getTrackers().stream()
+                .filter(t -> t.getTrackerId().equals(trackerId))
+                .findFirst();
+
+        if (trackerConfig.isEmpty()) {
+            return null;
+        }
+
+        ProjectConfig.TrackerConfig config = trackerConfig.get();
+        // 如果 tracker 配置了 classifyField 或 classifyRules，则构建 ClassifyConfig
+        if (config.getClassifyField() != null || config.getClassifyRules() != null) {
+            ClassifyConfig classifyConfig = new ClassifyConfig();
+            classifyConfig.setClassifyField(config.getClassifyField());
+            classifyConfig.setClassifyRules(config.getClassifyRules() != null ? config.getClassifyRules() : new ArrayList<>());
+            return classifyConfig;
+        }
+
+        return null;
+    }
+
+    /**
+     * 判断状态是否启用定时通知
+     *
+     * 定时通知和即时通知是独立的：
+     * - 即时通知：由 notify-field 控制
+     * - 定时通知：由 scheduled-notify 控制（默认 false）
+     *
+     * @param stateConfig 状态配置
+     * @return true表示启用定时通知
+     */
+    public boolean getScheduledNotify(WorkflowTemplate.StateConfig stateConfig) {
+        if (stateConfig == null) {
+            return false;
+        }
+
+        // 如果显式配置了 scheduledNotify，使用配置值
+        if (stateConfig.getScheduledNotify() != null) {
+            return stateConfig.getScheduledNotify();
+        }
+
+        // 默认：不开启定时通知（需要显式配置 scheduled-notify: true 才启用）
+        return false;
+    }
+
+    /**
+     * 获取通知时间
+     *
+     * 项目级defaultNotifyTime > 全局级defaultNotifyTime > 系统默认
+     * 注意：已取消tracker级配置，统一使用project级配置
+     *
+     * @param trackerId tracker ID (参数保留但不使用，保持接口兼容)
+     * @param projectId 项目ID
+     * @return 通知时间（如 "08:00"），未配置返回默认值
+     */
+    public String getNotifyTime(Integer trackerId, Integer projectId) {
+        // 1. 查找项目级 defaultNotifyTime
+        if (projectId != null && workflowProperties.getClassifyConfig() != null
+                && workflowProperties.getClassifyConfig().getProjects() != null) {
+            WorkflowProperties.ProjectClassifyConfig projectClassifyConfig = workflowProperties.getClassifyConfig()
+                    .getProjects().get(String.valueOf(projectId));
+            if (projectClassifyConfig != null && projectClassifyConfig.getDefaultNotifyTime() != null) {
+                log.debug("使用项目级default-notify-time: projectId={}, time={}",
+                        projectId, projectClassifyConfig.getDefaultNotifyTime());
+                return projectClassifyConfig.getDefaultNotifyTime();
+            }
+        }
+
+        // 2. 使用全局默认通知时间
+        if (workflowProperties.getClassifyConfig() != null) {
+            ClassifyConfig globalClassifyConfig = workflowProperties.getClassifyConfig().getGlobal();
+            if (globalClassifyConfig != null && globalClassifyConfig.getDefaultNotifyTime() != null) {
+                log.debug("使用全局级default-notify-time: time={}",
+                        globalClassifyConfig.getDefaultNotifyTime());
+                return globalClassifyConfig.getDefaultNotifyTime();
+            }
+        }
+
+        // 3. 系统默认值
+        log.debug("使用系统默认通知时间: 08:00");
+        return "08:00";
+    }
+
+    /**
+     * 获取分类规则匹配
+     *
+     * 根据分类字段值匹配对应的分类规则
+     *
+     * @param classifyValue 分类字段值
+     * @param classifyConfig 分类配置
+     * @return 匹配的分类规则，未匹配返回null
+     */
+    public ClassifyRule matchClassifyRule(String classifyValue, ClassifyConfig classifyConfig) {
+        if (classifyValue == null || classifyConfig == null || classifyConfig.getClassifyRules() == null) {
+            return null;
+        }
+
+        // 匹配分类规则
+        Optional<ClassifyRule> matchedRule = classifyConfig.getClassifyRules().stream()
+                .filter(rule -> rule.getCategory() != null && rule.getCategory().equals(classifyValue))
+                .findFirst();
+
+        if (matchedRule.isPresent()) {
+            return matchedRule.get();
+        }
+
+        // 未匹配，尝试使用 defaultCategory
+        if (classifyConfig.getDefaultCategory() != null) {
+            return classifyConfig.getClassifyRules().stream()
+                    .filter(rule -> rule.getCategory() != null && rule.getCategory().equals(classifyConfig.getDefaultCategory()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        return null;
     }
 }

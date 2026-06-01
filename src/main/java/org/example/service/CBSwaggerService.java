@@ -3,14 +3,16 @@ package org.example.service;
 import org.example.model.cb.ReviewItem;
 import org.example.model.dto.request.AssociationsRequest;
 import org.example.model.dto.request.TrackerItemFieldRequest;
-import org.example.model.dto.response.*;
+import org.example.model.dto.response.CBHistoryResponse;
 import org.example.model.dto.response.CBQueryResponse;
 import org.example.model.dto.response.CBTrackerConfigurationResponse;
 import org.example.model.dto.response.CBTrackerInfoResponse;
 import org.example.model.dto.response.CBTrackerItemsResponse;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.dto.response.ReviewStatisticsResponse;
 import org.example.model.enums.RelationType;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -141,6 +143,28 @@ public interface CBSwaggerService {
      * @return 用户列表，每个用户包含userId和displayName
      */
     List<ItemInfoResponse.MemberInfo> getAllUsers();
+
+    /**
+     * 获取条目状态变更历史
+     *
+     * 调用 Codebeamer History API 获取条目的所有修改历史。
+     * 用于初始化时获取进入目标状态的时间。
+     *
+     * @param itemId 条目ID
+     * @return 历史记录响应，包含所有版本变更信息
+     */
+    CBHistoryResponse getItemHistory(Integer itemId);
+
+    /**
+     * 获取条目进入目标状态的时间
+     *
+     * 从历史记录中查找最后一次状态切换到目标状态的时间。
+     *
+     * @param itemId 条目ID
+     * @param targetState 目标状态名称
+     * @return 进入目标状态的时间，未找到返回当前时间（兜底）
+     */
+    LocalDateTime getEnterStateTime(Integer itemId, String targetState);
 
     /**
      * 查询所有评审
