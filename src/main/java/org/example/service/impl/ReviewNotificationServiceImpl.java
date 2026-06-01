@@ -44,8 +44,10 @@ public class ReviewNotificationServiceImpl {
     private int nearExpiredDefault;
 
     public void runEightOClockTasks() {
+        log.info("每日定时任务启动");
         List<ReviewRecord> records = repository.findOpenRecords();
         if (records == null || records.isEmpty()) {
+            log.info("没有开启的评审单！");
             return;
         }
 
@@ -578,7 +580,7 @@ public class ReviewNotificationServiceImpl {
                     }
                 }
             } catch (Exception e) {
-                log.error("Failed to send 8am notification. userId={}, title={}, reviewCount={}", userId, title, grouped.values().stream().mapToInt(List::size).sum(), e);
+                log.error("每日定时任务-钉钉通知发送失败. userId={}, title={}, reviewCount={}", userId, title, grouped.values().stream().mapToInt(List::size).sum(), e);
             }
         }
     }
