@@ -11,9 +11,12 @@ import org.example.service.CBSwaggerService;
 import org.example.workflow.config.*;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 初始化补录服务类
@@ -37,8 +40,9 @@ public class InitService {
     /**
      * 执行全量初始化
      *
-     * 检查 initialized 标记，若未初始化则扫描所有存量条目。
+     * 服务启动时自动执行，检查 initialized 标记，若未初始化则扫描所有存量条目。
      */
+    @PostConstruct
     public void runInitialization() {
         if (configMetaService.checkInitialized()) {
             log.info("系统已初始化，跳过全量初始化");
@@ -86,22 +90,37 @@ public class InitService {
 
         log.info("初始化项目: projectId={}, projectName={}", projectId, projectConfig.getProjectName());
 
-        // 遍历 tracker-matching 配置
+        // 收集需要初始化的 tracker 及其 workflow
+        // 使用 Map 避免重复处理同一个 tracker
+        Map<Integer, String> trackerWorkflowMap = new HashMap<>();
+
+        // 1. 先从 tracker-matching 收集（基础配置）
         if (projectConfig.getTrackerMatching() != null) {
             for (TrackerMatchingRule rule : projectConfig.getTrackerMatching()) {
-                if (rule.getTrackerId() != null) {
-                    InitResult trackerResult = initTracker(projectId, rule.getTrackerId(), rule.getWorkflow());
-                    result.add(trackerResult);
+                if (rule.getTrackerId() != null && rule.getWorkflow() != null) {
+                    trackerWorkflowMap.put(rule.getTrackerId(), rule.getWorkflow());
                 }
             }
         }
 
-        // 遍历 trackers 差异配置
+        // 2. 再从 trackers 收集（覆盖配置）
         if (projectConfig.getTrackers() != null) {
             for (ProjectConfig.TrackerConfig trackerConfig : projectConfig.getTrackers()) {
-                InitResult trackerResult = initTracker(projectId, trackerConfig.getTrackerId(), trackerConfig.getWorkflow());
-                result.add(trackerResult);
+                Integer trackerId = trackerConfig.getTrackerId();
+                if (trackerId != null) {
+                    // 如果 trackers 中配置了 workflow，则覆盖 tracker-matching 的配置
+                    if (trackerConfig.getWorkflow() != null) {
+                        trackerWorkflowMap.put(trackerId, trackerConfig.getWorkflow());
+                    }
+                    // 如果没有配置 workflow，保留 tracker-matching 的配置（继承）
+                }
             }
+        }
+
+        // 3. 统一初始化所有 tracker（不重复）
+        for (Map.Entry<Integer, String> entry : trackerWorkflowMap.entrySet()) {
+            InitResult trackerResult = initTracker(projectId, entry.getKey(), entry.getValue());
+            result.add(trackerResult);
         }
 
         return result;
@@ -133,36 +152,56 @@ public class InitService {
                 continue;
             }
 
-            // 查询该状态的存量条目
-            List<TrackerItem> items = fetchItemsByTrackerAndState(trackerId, stateConfig.getName());
-            log.info("查询tracker状态条目: trackerId={}, state={}, itemCount={}",
-                    trackerId, stateConfig.getName(), items.size());
+            try {
+                // 查询该状态的存量条目
+                List<TrackerItem> items = fetchItemsByTrackerAndState(trackerId, stateConfig.getName());
+                log.info("查询tracker状态条目: trackerId={}, state={}, itemCount={}",
+                        trackerId, stateConfig.getName(), items.size());
 
-            // 批量处理条目
-            for (TrackerItem item : items) {
-                result.processed++;
+                // 每次状态查询后添加延迟，避免 query API 限流
+                Thread.sleep(1500);
 
-                // 检查是否已存在记录
-                ItemStateRecord existingRecord = itemStateRecordMapper.selectByItemId(item.getId());
-                if (existingRecord != null) {
-                    result.skipped++;
-                    continue;
+                // 批量处理条目
+                for (TrackerItem item : items) {
+                    result.processed++;
+
+                    // 检查是否已存在记录
+                    ItemStateRecord existingRecord = itemStateRecordMapper.selectByItemId(item.getId());
+                    if (existingRecord != null) {
+                        result.skipped++;
+                        continue;
+                    }
+
+                    try {
+                        // 获取进入状态时间
+                        LocalDateTime enterStateTime = cbSwaggerService.getEnterStateTime(item.getId(), stateConfig.getName());
+
+                        // 写入记录
+                        ItemStateRecord record = new ItemStateRecord();
+                        record.setItemId(item.getId());
+                        record.setItemName(item.getName());
+                        record.setTrackerId(trackerId);
+                        record.setProjectId(projectId);
+                        record.setTargetState(stateConfig.getName());
+                        record.setEnterStateTime(enterStateTime);
+
+                        itemStateRecordMapper.insert(record);
+                        result.inserted++;
+
+                        // 添加延迟避免 history API 限流（每次请求后等待1.5秒）
+                        Thread.sleep(1500);
+
+                    } catch (InterruptedException e) {
+                        log.warn("延迟等待被中断");
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        log.error("处理条目失败, itemId={}, error={}", item.getId(), e.getMessage());
+                        result.skipped++;
+                    }
                 }
-
-                // 获取进入状态时间
-                LocalDateTime enterStateTime = cbSwaggerService.getEnterStateTime(item.getId(), stateConfig.getName());
-
-                // 写入记录
-                ItemStateRecord record = new ItemStateRecord();
-                record.setItemId(item.getId());
-                record.setItemName(item.getName());
-                record.setTrackerId(trackerId);
-                record.setProjectId(projectId);
-                record.setTargetState(stateConfig.getName());
-                record.setEnterStateTime(enterStateTime);
-
-                itemStateRecordMapper.insert(record);
-                result.inserted++;
+            } catch (InterruptedException e) {
+                log.warn("状态查询延迟被中断");
+                Thread.currentThread().interrupt();
             }
         }
 
@@ -208,7 +247,7 @@ public class InitService {
      * @param projectId 项目ID
      * @return 补录结果
      */
-    public InitResult 补录Project(Integer projectId) {
+    public InitResult supplementProject(Integer projectId) {
         log.info("开始按项目补录: projectId={}", projectId);
 
         ProjectConfig projectConfig = workflowConfigService.findProjectConfig(projectId);

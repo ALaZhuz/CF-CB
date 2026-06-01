@@ -755,7 +755,6 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
-<<<<<<< Updated upstream
      * 获取所有评审
      */
     @Override
@@ -816,7 +815,9 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 ReviewStatisticsResponse.class
         );
         return response.getBody();
-=======
+    }
+
+    /**
      * 获取条目状态变更历史
      *
      * 调用 Codebeamer History API 获取条目的所有修改历史。
@@ -830,7 +831,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             return null;
         }
 
-        String url = baseUrl + "/api/v3/items/" + itemId + "/history";
+        String url = baseUrl() + "/v3/items/" + itemId + "/history";
 
         ResponseEntity<CBHistoryResponse> response = restTemplate.exchange(
                 url,
@@ -854,10 +855,11 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      *
      * 从历史记录中查找最后一次状态切换到目标状态的时间。
      * 遍历 versions（从最新到最旧），找 changes 中 field.name = "Status" 且 newValue = targetState 的版本。
+     * 如果找不到状态变更记录，说明该状态是条目的初始状态（新建时的默认状态），使用 version=1 的 modifiedAt（创建时间）。
      *
      * @param itemId 条目ID
      * @param targetState 目标状态名称
-     * @return 进入目标状态的时间，未找到返回当前时间（兜底）
+     * @return 进入目标状态的时间，未找到返回创建时间（兜底）
      */
     @Override
     public LocalDateTime getEnterStateTime(Integer itemId, String targetState) {
@@ -871,13 +873,17 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             return LocalDateTime.now();
         }
 
-        // 遍历 versions（从最新到最旧）
         List<CBHistoryVersion> versions = historyResponse.getVersions();
-        // 反转列表，从最新版本开始查找
-        List<CBHistoryVersion> reversedVersions = new ArrayList<>(versions);
-        Collections.reverse(reversedVersions);
+        if (versions.isEmpty()) {
+            log.warn("条目历史记录版本列表为空, itemId={}", itemId);
+            return LocalDateTime.now();
+        }
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+
+        // 遍历 versions（从最新到最旧）
+        List<CBHistoryVersion> reversedVersions = new ArrayList<>(versions);
+        Collections.reverse(reversedVersions);
 
         for (CBHistoryVersion version : reversedVersions) {
             if (version.getChanges() == null || version.getChanges().isEmpty()) {
@@ -908,9 +914,25 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             }
         }
 
-        // 未找到状态变更记录，使用当前时间（兜底）
-        log.warn("未找到状态变更记录, 使用当前时间, itemId={}, targetState={}", itemId, targetState);
+        // 未找到状态变更记录，说明该状态是条目的初始状态
+        // 使用 version=1（第一个版本，即创建时间）的 modifiedAt 作为 enter_state_time
+        // 版本列表通常是按版本号顺序排列的，所以第一个元素就是 version=1
+        CBHistoryVersion firstVersion = versions.get(0);
+        if (firstVersion.getItemRevision() != null && firstVersion.getItemRevision().getVersion() == 1) {
+            String createdAt = firstVersion.getModifiedAt();
+            if (createdAt != null) {
+                try {
+                    log.info("未找到状态变更记录, 使用创建时间作为初始状态的enter_state_time, itemId={}, targetState={}, createdAt={}",
+                            itemId, targetState, createdAt);
+                    return LocalDateTime.parse(createdAt, formatter);
+                } catch (Exception e) {
+                    log.warn("解析创建时间失败, createdAt={}, itemId={}", createdAt, itemId);
+                }
+            }
+        }
+
+        // 兜底：使用当前时间
+        log.warn("无法确定enter_state_time, 使用当前时间, itemId={}, targetState={}", itemId, targetState);
         return LocalDateTime.now();
->>>>>>> Stashed changes
     }
 }

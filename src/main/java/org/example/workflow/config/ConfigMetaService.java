@@ -5,19 +5,29 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.db.entity.ConfigMeta;
 import org.example.db.mapper.ConfigMetaMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.stereotype.Service;
+import org.yaml.snakeyaml.Yaml;
 
-import java.io.File;
+import javax.annotation.PostConstruct;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Map;
 
 /**
  * 配置元数据服务类
  *
- * 管理初始化状态和YAML配置变更检测。
+ * 管理初始化状态、YAML配置变更检测、配置存储。
+ * 支持配置热更新：从数据库读取配置，检测变更时自动重新加载。
  *
  * @author system
  * @since 1.0
@@ -28,14 +38,42 @@ import java.time.ZoneId;
 public class ConfigMetaService {
 
     private final ConfigMetaMapper configMetaMapper;
+    private final WorkflowProperties workflowProperties;
 
     @Value("${spring.config.import:classpath:workflow-config.yml}")
     private String configImport;
 
     /**
-     * 检查是否已初始化
+     * 服务启动时同步配置到数据库
      *
-     * @return true表示已初始化
+     * 如果数据库中没有配置，从 YAML 文件读取并存入数据库。
+     */
+    @PostConstruct
+    public void syncConfigToDatabase() {
+        try {
+            ConfigMeta configMeta = configMetaMapper.select();
+
+            if (configMeta == null || configMeta.getYamlContent() == null) {
+                log.info("数据库中无配置，从 YAML 文件同步...");
+
+                Path yamlPath = getYamlFilePath();
+                if (yamlPath != null && Files.exists(yamlPath)) {
+                    String yamlContent = Files.readString(yamlPath);
+                    LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
+
+                    configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "system");
+                    log.info("配置已同步到数据库");
+                }
+            } else {
+                log.info("数据库已有配置，跳过同步");
+            }
+        } catch (Exception e) {
+            log.warn("同步配置到数据库失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 检查是否已初始化
      */
     public boolean checkInitialized() {
         return configMetaMapper.isInitialized();
@@ -51,28 +89,19 @@ public class ConfigMetaService {
 
     /**
      * 检查YAML配置是否变更
-     *
-     * 对比 workflow-config.yml 文件修改时间与数据库记录。
-     *
-     * @return true表示配置有变更
      */
     public boolean checkYamlModified() {
         try {
-            // 获取YAML文件修改时间
             LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
             if (fileModifiedTime == null) {
                 return false;
             }
 
-            // 获取数据库记录
             ConfigMeta configMeta = configMetaMapper.select();
             if (configMeta == null || configMeta.getYamlModifiedTime() == null) {
-                // 首次运行，记录文件时间
-                updateYamlLoadedTime(fileModifiedTime, LocalDateTime.now());
                 return false;
             }
 
-            // 对比时间
             if (fileModifiedTime.isAfter(configMeta.getYamlModifiedTime())) {
                 log.info("YAML配置文件已变更, fileTime={}, dbTime={}",
                         fileModifiedTime, configMeta.getYamlModifiedTime());
@@ -88,28 +117,153 @@ public class ConfigMetaService {
     }
 
     /**
-     * 获取YAML文件修改时间
+     * 重新加载YAML配置（热更新）
      *
-     * @return 文件修改时间
+     * 从 YAML 文件重新读取配置，存入数据库，并更新 WorkflowProperties。
+     */
+    public void reloadYamlConfig() {
+        try {
+            Path yamlPath = getYamlFilePath();
+            if (yamlPath == null || !Files.exists(yamlPath)) {
+                log.warn("YAML配置文件不存在，尝试从数据库加载");
+                loadConfigFromDatabase();
+                return;
+            }
+
+            log.info("开始重新加载YAML配置: {}", yamlPath);
+
+            String yamlContent = Files.readString(yamlPath);
+            LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
+            configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "auto-reload");
+
+            // 使用 Binder 更新配置
+            Yaml yaml = new Yaml();
+            Map<String, Object> configMap = yaml.load(new FileInputStream(yamlPath.toFile()));
+            bindConfigToProperties(configMap);
+
+            log.info("YAML配置热更新完成");
+
+        } catch (Exception e) {
+            log.error("YAML配置热更新失败: {}", e.getMessage(), e);
+            loadConfigFromDatabase();
+        }
+    }
+
+    /**
+     * 从数据库加载配置（热更新）
+     */
+    public void loadConfigFromDatabase() {
+        try {
+            String yamlContent = configMetaMapper.selectYamlContent();
+            if (yamlContent == null || yamlContent.isEmpty()) {
+                log.warn("数据库中无配置内容");
+                return;
+            }
+
+            log.info("从数据库加载配置");
+
+            Yaml yaml = new Yaml();
+            Map<String, Object> configMap = yaml.load(yamlContent);
+            bindConfigToProperties(configMap);
+
+            log.info("数据库配置加载完成");
+
+        } catch (Exception e) {
+            log.error("从数据库加载配置失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 使用 Spring Binder 将配置绑定到 WorkflowProperties
+     *
+     * @param configMap YAML 解析后的配置 Map
+     */
+    private void bindConfigToProperties(Map<String, Object> configMap) {
+        try {
+            // 创建配置源
+            MapConfigurationPropertySource source = new MapConfigurationPropertySource(configMap);
+            Binder binder = new Binder(source);
+
+            // 直接绑定到 WorkflowProperties 的各个字段
+            // Binder 会自动更新对象内部的值
+
+            // 绑定 classify-config
+            binder.bind("classify-config",
+                Bindable.of(WorkflowProperties.ClassifyConfigConfig.class)
+                    .withExistingValue(workflowProperties.getClassifyConfig()));
+            log.debug("classify-config 已更新");
+
+            // 绑定 type-mappings
+            binder.bind("type-mappings",
+                Bindable.of(WorkflowProperties.TypeMappingsConfig.class)
+                    .withExistingValue(workflowProperties.getTypeMappings()));
+            log.debug("type-mappings 已更新");
+
+            // 绑定 extra-fields
+            binder.bind("extra-fields",
+                Bindable.of(WorkflowProperties.ExtraFieldsConfig.class)
+                    .withExistingValue(workflowProperties.getExtraFields()));
+            log.debug("extra-fields 已更新");
+
+            // 绑定 dingtalk
+            binder.bind("dingtalk",
+                Bindable.of(WorkflowProperties.DingtalkConfig.class)
+                    .withExistingValue(workflowProperties.getDingtalk()));
+            log.debug("dingtalk 已更新");
+
+            // 绑定 global-workflows（列表）
+            binder.bind("global-workflows",
+                Bindable.ofInstance(workflowProperties.getGlobalWorkflows()));
+            log.debug("global-workflows 已更新");
+
+            // 绑定 projects（列表，支持新增/删除）
+            // 先清空再绑定，确保新增/删除生效
+            workflowProperties.getProjects().clear();
+            binder.bind("projects",
+                Bindable.ofInstance(workflowProperties.getProjects()));
+            log.info("projects 配置已更新（支持新增/删除项目热更新）");
+
+            log.info("WorkflowProperties 热更新完成");
+
+        } catch (Exception e) {
+            log.error("绑定配置到 WorkflowProperties 失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 获取YAML文件路径
+     */
+    private Path getYamlFilePath() {
+        Path yamlPath = Path.of("src/main/resources/workflow-config.yml");
+        if (Files.exists(yamlPath)) {
+            return yamlPath;
+        }
+
+        yamlPath = Path.of("workflow-config.yml");
+        if (Files.exists(yamlPath)) {
+            return yamlPath;
+        }
+
+        yamlPath = Path.of("config/workflow-config.yml");
+        if (Files.exists(yamlPath)) {
+            return yamlPath;
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取YAML文件修改时间
      */
     private LocalDateTime getYamlFileModifiedTime() {
         try {
-            // workflow-config.yml 文件路径
-            Path yamlPath = Path.of("src/main/resources/workflow-config.yml");
-            if (!Files.exists(yamlPath)) {
-                // 尝试其他路径
-                yamlPath = Path.of("workflow-config.yml");
-            }
-
-            if (Files.exists(yamlPath)) {
+            Path yamlPath = getYamlFilePath();
+            if (yamlPath != null && Files.exists(yamlPath)) {
                 BasicFileAttributes attrs = Files.readAttributes(yamlPath, BasicFileAttributes.class);
                 return LocalDateTime.ofInstant(attrs.lastModifiedTime().toInstant(), ZoneId.systemDefault());
             }
-
-            log.warn("YAML配置文件不存在");
             return null;
-
-        } catch (Exception e) {
+        } catch (IOException e) {
             log.error("获取YAML文件修改时间失败: {}", e.getMessage());
             return null;
         }
@@ -117,20 +271,13 @@ public class ConfigMetaService {
 
     /**
      * 更新YAML修改时间和加载时间
-     *
-     * @param yamlModifiedTime YAML文件修改时间
-     * @param lastLoadedTime 配置加载时间
      */
     public void updateYamlLoadedTime(LocalDateTime yamlModifiedTime, LocalDateTime lastLoadedTime) {
         configMetaMapper.updateYamlTime(yamlModifiedTime, lastLoadedTime);
-        log.debug("更新YAML时间记录: yamlModifiedTime={}, lastLoadedTime={}",
-                yamlModifiedTime, lastLoadedTime);
     }
 
     /**
      * 仅更新配置加载时间
-     *
-     * @param lastLoadedTime 配置加载时间
      */
     public void updateLastLoadedTime(LocalDateTime lastLoadedTime) {
         configMetaMapper.updateLastLoadedTime(lastLoadedTime);
@@ -138,11 +285,16 @@ public class ConfigMetaService {
 
     /**
      * 重置初始化标记
-     *
-     * 用于手动触发重新初始化
      */
     public void resetInitialized() {
         configMetaMapper.updateInitialized(false);
         log.info("初始化状态已重置");
+    }
+
+    /**
+     * 获取数据库中存储的 YAML 内容
+     */
+    public String getStoredYamlContent() {
+        return configMetaMapper.selectYamlContent();
     }
 }

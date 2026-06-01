@@ -35,11 +35,11 @@ public class ScheduledNotifyController {
      * @param projectId 项目ID
      * @return 补录结果
      */
-    @PostMapping("/补录/{projectId}")
-    public Map<String, Object> 补录Project(@PathVariable Integer projectId) {
+    @PostMapping("/supplement/{projectId}")
+    public Map<String, Object> supplementProject(@PathVariable Integer projectId) {
         log.info("收到项目补录请求: projectId={}", projectId);
 
-        InitService.InitResult result = initService.补录Project(projectId);
+        InitService.InitResult result = initService.supplementProject(projectId);
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);

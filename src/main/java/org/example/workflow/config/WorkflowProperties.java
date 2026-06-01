@@ -62,15 +62,34 @@ public class WorkflowProperties {
      * 分类通知配置类
      *
      * 支持全局和项目级分类配置。
-     * 项目级完全覆盖全局，不追加。
+     * 配置层级：tracker级 > 项目级tracker-types > 项目级global > 全局级
+     *
+     * 注意：classify-config 是可选配置，各层级都可以为 null。
      */
     @Data
     public static class ClassifyConfigConfig {
-        /** 全局分类配置 */
-        private ClassifyConfig global = new ClassifyConfig();
+        /** 全局分类配置（可选，null 表示不启用全局分类通知） */
+        private ClassifyConfig global;
 
-        /** 项目级分类配置：projectId -> ClassifyConfig */
-        private Map<String, ClassifyConfig> projects = new HashMap<>();
+        /** 项目级分类配置：projectId -> ProjectClassifyConfig（可选） */
+        private Map<String, ProjectClassifyConfig> projects;
+    }
+
+    /**
+     * 项目级分类配置类
+     *
+     * 支持项目内全局配置和 tracker-type 级别配置。
+     */
+    @Data
+    public static class ProjectClassifyConfig {
+        /** 项目内全局分类配置（该项目所有 tracker-type 默认使用） */
+        private ClassifyConfig global;
+
+        /** tracker-type 级分类配置：trackerType -> ClassifyConfig */
+        private Map<String, ClassifyConfig> trackerTypes;
+
+        /** 默认通知时间（每天执行定时通知的时间） */
+        private String defaultNotifyTime;
     }
 
     /**

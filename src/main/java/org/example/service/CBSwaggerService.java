@@ -3,16 +3,13 @@ package org.example.service;
 import org.example.model.cb.ReviewItem;
 import org.example.model.dto.request.AssociationsRequest;
 import org.example.model.dto.request.TrackerItemFieldRequest;
-<<<<<<< Updated upstream
-import org.example.model.dto.response.*;
-=======
 import org.example.model.dto.response.CBHistoryResponse;
->>>>>>> Stashed changes
 import org.example.model.dto.response.CBQueryResponse;
 import org.example.model.dto.response.CBTrackerConfigurationResponse;
 import org.example.model.dto.response.CBTrackerInfoResponse;
 import org.example.model.dto.response.CBTrackerItemsResponse;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.dto.response.ReviewStatisticsResponse;
 import org.example.model.enums.RelationType;
 
 import java.time.LocalDateTime;

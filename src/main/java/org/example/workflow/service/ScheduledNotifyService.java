@@ -10,10 +10,13 @@ import org.example.model.dto.response.ItemInfoResponse;
 import org.example.service.CBSwaggerService;
 import org.example.service.DingService;
 import org.example.workflow.cache.OrgCacheService;
+import org.example.workflow.cache.DingUserCacheService;
 import org.example.workflow.config.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.DependsOn;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -34,6 +37,7 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+@DependsOn({"orgCacheService", "dingUserCacheService"}) // 明确依赖：确保两个缓存服务先初始化
 public class ScheduledNotifyService {
 
     private final ConfigMetaService configMetaService;
@@ -43,15 +47,87 @@ public class ScheduledNotifyService {
     private final OrgCacheService orgCacheService;
     private final ItemStateRecordMapper itemStateRecordMapper;
     private final NotifyLogMapper notifyLogMapper;
+    private final DingUserCacheService dingUserCacheService; // 注入用户缓存服务
+
+    /**
+     * 服务初始化完成后检查缓存就绪状态
+     */
+    @PostConstruct
+    public void validateCacheReadiness() {
+        log.info("ScheduledNotifyService 初始化完成，检查缓存服务状态...");
+        log.info("OrgCacheService 缓存记录数: {}", orgCacheService.getCacheSize());
+        log.info("DingUserCacheService 有效用户数: {}", dingUserCacheService.getCacheSize());
+
+        if (orgCacheService.getCacheSize() == 0) {
+            log.warn("警告: 组织架构缓存为空，可能影响通知发送");
+        }
+        if (dingUserCacheService.getCacheSize() == 0) {
+            log.warn("警告: 钉钉用户缓存为空，可能影响用户验证");
+        }
+    }
+
+    /**
+     * 检查缓存服务是否就绪
+     *
+     * @return true表示缓存服务已就绪
+     */
+    public boolean areCachesReady() {
+        return orgCacheService.getCacheSize() > 0 && dingUserCacheService.getCacheSize() > 0;
+    }
 
     /**
      * 定时通知主调度方法
      *
      * 默认每天08:00执行，时间可通过配置覆盖。
+     * 实际执行时间由配置文件中的 default-notify-time 决定
      */
-    @Scheduled(cron = "0 0 8 * * *")
+    @Scheduled(cron = "0 0/1 * * * *") // 每分钟检查一次
     public void executeScheduledNotify() {
+        // 获取配置的默认通知时间
+        String notifyTime = workflowConfigService.getNotifyTime(null, 5); // 使用项目5的配置
+
+        // 解析配置的时间（格式：HH:mm）
+        String[] timeParts = notifyTime.split(":");
+        if (timeParts.length != 2) {
+            log.warn("配置的notifyTime格式错误: {}, 使用默认8点", notifyTime);
+            timeParts = new String[]{"08", "00"};
+        }
+
+        int configuredHour = Integer.parseInt(timeParts[0]);
+        int configuredMinute = Integer.parseInt(timeParts[1]);
+
+        // 获取当前时间
+        LocalDateTime now = LocalDateTime.now();
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+
+        // 检查是否是配置的执行时间（允许±1分钟误差）
+        boolean isExecutionTime = false;
+        if (currentHour == configuredHour) {
+            if (currentMinute == configuredMinute) {
+                isExecutionTime = true; // 正好在配置时间
+                log.info("⏰ 到达配置的执行时间 {}:{}，开始执行定时通知", configuredHour, configuredMinute);
+            } else if (currentMinute == configuredMinute - 1 || currentMinute == configuredMinute + 1) {
+                // 前后1分钟内也执行，避免错过
+                log.info("⏰ 接近配置的执行时间 {}:{}（当前{}:{}），执行定时通知",
+                        configuredHour, configuredMinute, currentHour, currentMinute);
+                isExecutionTime = true;
+            }
+        }
+
+        if (!isExecutionTime) {
+            log.debug("当前时间 {}:{} 不在配置的执行时间 {}:{} 附近，跳过执行",
+                    currentHour, currentMinute, configuredHour, configuredMinute);
+            return;
+        }
         log.info("========== 定时通知调度器启动 ==========");
+
+        // 检查缓存服务就绪状态
+        if (!areCachesReady()) {
+            log.warn("缓存服务未就绪(OrgCache:{}, DingUserCache:{}), 跳过本次执行",
+                    orgCacheService.getCacheSize(), dingUserCacheService.getCacheSize());
+            return;
+        }
 
         long startTime = System.currentTimeMillis();
 
@@ -103,11 +179,8 @@ public class ScheduledNotifyService {
      */
     private void checkAndReloadConfig() {
         if (configMetaService.checkYamlModified()) {
-            log.info("检测到YAML配置变更，记录新时间");
-            LocalDateTime fileModifiedTime = LocalDateTime.now();
-            configMetaService.updateYamlLoadedTime(fileModifiedTime, LocalDateTime.now());
-            // 注：Spring @ConfigurationProperties 默认不支持热更新
-            // 如需热更新，需要实现自定义的配置重载逻辑
+            log.info("检测到YAML配置变更，触发热更新");
+            configMetaService.reloadYamlConfig();
         }
     }
 
@@ -173,8 +246,17 @@ public class ScheduledNotifyService {
         int stayDays = calculateStayDays(record.getEnterStateTime());
         log.debug("条目停留天数: itemId={}, stayDays={}", itemId, stayDays);
 
-        // 5. 获取分类配置和规则
-        ClassifyConfig classifyConfig = workflowConfigService.getClassifyConfig(trackerId, projectId);
+        // 5. 获取分类配置和规则（传入 trackerType）
+        String trackerType = itemInfo.getTracker().getTypeName();
+        ClassifyConfig classifyConfig = workflowConfigService.getClassifyConfig(trackerId, trackerType, projectId);
+
+        // 如果没有分类配置，说明该 tracker/tracker-type 不启用分类通知，跳过
+        if (classifyConfig == null) {
+            log.debug("该tracker/tracker-type未配置分类通知, itemId={}, trackerId={}, trackerType={}", itemId, trackerId, trackerType);
+            result.skipped = true;
+            return result;
+        }
+
         String classifyValue = getClassifyValue(itemInfo, classifyConfig.getClassifyField());
         ClassifyRule classifyRule = workflowConfigService.matchClassifyRule(classifyValue, classifyConfig);
 
@@ -191,6 +273,17 @@ public class ScheduledNotifyService {
             log.warn("通知字段无成员, itemId={}, notifyField={}", itemId, notifyField);
             result.skipped = true;
             return result;
+        }
+
+        // 验证用户有效性（新增检查）
+        List<String> userIds = members.stream()
+                .map(m -> m.getUserId())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        Set<String> invalidUserIds = dingUserCacheService.findInvalidUserIds(userIds);
+        if (!invalidUserIds.isEmpty()) {
+            log.warn("发现无效用户ID: itemId={}, invalidUserIds={}", itemId, invalidUserIds);
+            // 可以选择过滤掉无效用户继续处理，或者跳过整个条目
         }
 
         // 7. 发送成员通知
@@ -311,6 +404,12 @@ public class ScheduledNotifyService {
                 continue;
             }
 
+            // 检查用户有效性
+            if (!dingUserCacheService.isValidUserId(userid)) {
+                log.warn("跳过无效用户: itemId={}, userid={}", itemId, userid);
+                continue;
+            }
+
             String message = formatMemberMessage(itemInfo, trackerTypeDisplay, stayDays, member);
 
             try {
@@ -337,6 +436,12 @@ public class ScheduledNotifyService {
             if (userid == null || userid.isEmpty()) {
                 continue;
             }
+
+            // 检查用户有效性
+            if (!dingUserCacheService.isValidUserId(userid)) {
+                continue;
+            }
+
             String managerId = orgCacheService.getManager(userid);
             if (managerId != null) {
                 managerGroup.computeIfAbsent(managerId, k -> new ArrayList<>()).add(member);
@@ -350,6 +455,12 @@ public class ScheduledNotifyService {
         for (Map.Entry<String, List<ItemInfoResponse.MemberInfo>> entry : managerGroup.entrySet()) {
             String managerId = entry.getKey();
             List<ItemInfoResponse.MemberInfo> responsibleMembers = entry.getValue();
+
+            // 检查科长用户有效性
+            if (!dingUserCacheService.isValidUserId(managerId)) {
+                log.warn("跳过无效科长: itemId={}, managerId={}", itemId, managerId);
+                continue;
+            }
 
             String memberNames = responsibleMembers.stream()
                     .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
@@ -382,6 +493,12 @@ public class ScheduledNotifyService {
             if (userid == null || userid.isEmpty()) {
                 continue;
             }
+
+            // 检查用户有效性
+            if (!dingUserCacheService.isValidUserId(userid)) {
+                continue;
+            }
+
             String directorId = orgCacheService.getDirector(userid);
             if (directorId != null) {
                 directorGroup.computeIfAbsent(directorId, k -> new ArrayList<>()).add(member);
@@ -395,6 +512,12 @@ public class ScheduledNotifyService {
         for (Map.Entry<String, List<ItemInfoResponse.MemberInfo>> entry : directorGroup.entrySet()) {
             String directorId = entry.getKey();
             List<ItemInfoResponse.MemberInfo> responsibleMembers = entry.getValue();
+
+            // 检查部长用户有效性
+            if (!dingUserCacheService.isValidUserId(directorId)) {
+                log.warn("跳过无效部长: itemId={}, directorId={}", itemId, directorId);
+                continue;
+            }
 
             String memberNames = responsibleMembers.stream()
                     .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
