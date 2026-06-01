@@ -37,6 +37,7 @@ public class ProjectConfig {
      * 定义某个tracker的专属配置，优先级最高。
      * 可直接引用工作流模板，或直接定义状态配置。
      * 可定义tracker专属的extra-fields（完全覆盖项目级）。
+     * 可定义tracker专属的分类配置和通知时间。
      */
     @Data
     public static class TrackerConfig {
@@ -52,5 +53,14 @@ public class ProjectConfig {
 
         /** Tracker级额外字段配置（完全覆盖项目级，不追加） */
         private List<ExtraField> extraFields;
+
+        /** Tracker级通知时间（如 "09:00"），覆盖全局 defaultNotifyTime */
+        private String notifyTime;
+
+        /** Tracker级分类字段名称，覆盖项目级和全局级 */
+        private String classifyField;
+
+        /** Tracker级分类规则列表，完全覆盖项目级和全局级 */
+        private List<ClassifyRule> classifyRules;
     }
 }

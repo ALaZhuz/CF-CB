@@ -16,6 +16,56 @@ dingtalk:
   personal-webhook-url: ""
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 分类通知配置（定时通知功能）
+# ─────────────────────────────────────────────────────────────────────────────
+classify-config:
+  global:
+    # 分类字段：从条目中提取此字段值用于匹配 classify-rules
+    classify-field: "severities"           # 可配置：priority、severities、categories 或自定义字段
+
+    # 默认分类规则（按 classify-field 的值匹配）
+    classify-rules:
+      - category: "严重"                    # 当 severities 包含 "严重" 时匹配
+        member-interval-days: 1             # 成员每1天通知
+        manager-escalate-days: 2            # 第2天起通知科长
+        director-escalate-days: 3           # 第3天起通知部长
+
+      - category: "一般"
+        member-interval-days: 2
+        manager-escalate-days: 3
+        director-escalate-days: 5
+
+      - category: "轻微"
+        member-interval-days: 3
+        manager-escalate-days: 5
+        director-escalate-days: null        # null 表示不通知部长
+
+    # 默认分类（当 classify-field 值不匹配任何规则时使用）
+    default-category: "一般"
+
+    # 默认通知时间（每天执行定时通知的时间）
+    default-notify-time: "08:00"
+
+  projects:
+    "5":
+      # 项目级覆盖 classify-field
+      classify-field: "priority"
+      # 项目级覆盖 classify-rules（完全覆盖全局，不追加）
+      classify-rules:
+        - category: "高"
+          member-interval-days: 1
+          manager-escalate-days: 1
+          director-escalate-days: 2
+        - category: "中"
+          member-interval-days: 2
+          manager-escalate-days: 3
+          director-escalate-days: 5
+        - category: "低"
+          member-interval-days: 3
+          manager-escalate-days: 5
+          director-escalate-days: null
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tracker类型映射（决定消息中 {trackertype} 显示内容）
 # 项目级完全覆盖全局，不追加
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +152,24 @@ projects:
             label: "11111"
           - field: "priority"
             label: "优先级"
+        # tracker级 notify-time（覆盖全局 default-notify-time）
+        notify-time: "09:00"
+        # tracker级 classify-field 和 classify-rules（完全覆盖上级）
+        classify-field: "客户优先级"        # 自定义字段
+        classify-rules:
+          - category: "紧急"
+            member-interval-days: 1
+            manager-escalate-days: 1
+            director-escalate-days: 2
+        # tracker级状态配置示例
+        states:
+          - name: "Draft"
+            notify-field: "assignedTo"
+            scheduled-notify: true           # 开启定时通知（默认 true，可省略）
+          - name: "Waiting for approval"
+            notify-field: "assignedTo"
+            scheduled-notify: false          # 显式关闭定时通知（只即时通知，不定时提醒）
+
       - tracker-id: 333
         # tracker级 extra-fields 空列表（不显示任何额外字段）
         extra-fields: []

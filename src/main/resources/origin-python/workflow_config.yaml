@@ -1,0 +1,120 @@
+# ==========================================
+# 1. 基础环境与中间件配置 (全局生效)
+# ==========================================
+environment: "test"  # 全局环境选择
+
+dingtalk:
+  personal:
+    webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=..."
+    message_template: "【{tracker_name}】\n名称: {item_name}\n状态: {status_name}，请您处理！\n{notify_field_name}: {notify_display_names}\n链接: {item_url}"
+  enterprise:
+    agent_id: "4182157252"
+    client_id: "dingen7uf61izibidx34"
+    client_secret: "oRrTEcXX-BmtTouwsDBH_61R4mIe5hHQ9QtTDG2cvD0uJlARHzIk_RuujvlIzmD"
+
+codebeamer:
+  production:
+    base_url: "http://192.168.101.174:8080/cb"
+    username: "271824611524632704"
+    password: "cbroot"
+  test:
+    base_url: "https://cb-pmt.hirain.com:8443/cb"
+    username: "zhangjiamin.zhong"
+    password: "zhangjiamin.zhong"
+
+# ==========================================
+# 2. 全局默认配置 (所有项目兜底)
+# ==========================================
+global_defaults:
+  # 默认的工作流模板
+  workflow_templates:
+    standard_requirement:
+      status_mappings:
+        "New": "assignedTo"
+        "Draft": "assignedTo"
+        "Waiting for approval": "assignedTo"
+        "Accepted": "assignedTo"
+        "Rejected": "assignedTo"
+
+  # 消息通知显示映射
+  type_mappings:
+    Requirement: "需求"
+    Task: "任务"
+    Bug: "缺陷"
+
+# ==========================================
+# 3. 项目级别配置 (覆盖全局默认)
+# ==========================================
+projects:
+  # ---- 项目 A (智能驾驶项目) ----
+  "1001":
+    name: "智能驾驶项目A"  # 仅供配置文件阅读方便
+    
+    # 项目特有工作流模板（覆盖全局同名模板）
+    workflow_templates:
+      customer_requirement:
+        status_mappings:
+          "New": "assignedTo"   
+          "Draft": "DRAFT填写的人"     
+          "Waiting for approval": "评审中填写的人"  
+          "Accepted": "接受通知的人"
+          "Rejected": "拒绝填写的人"
+    
+    # 项目Tracker匹配规则（覆盖全局规则）
+    tracker_matching:
+      rules:
+        - match_type: "name_pattern"   #项目配置引用：名字匹配
+          pattern: "Customer Requirement Specifications"
+          template: "customer_requirement" 
+        - match_type: "tracker_type"   #全局配置引用
+          tracker_type: "Requirement"
+          template: "standard_requirement"
+        - match_type: "tracker_type"   #全局引用
+          tracker_type: "Task"
+          template: "standard_requirement"
+    
+    # 项目级类型映射（可选，覆盖全局映射）
+    type_mappings:
+      Requirement: "智驾需求"
+      Task: "智驾任务"
+      Bug: "智驾缺陷"
+
+  # ---- 项目 B (底盘项目，完全复用全局配置) ----
+  "1002":
+    name: "底盘项目B"
+    description: "底盘系统相关跟踪"
+    # 无额外配置，完全使用global_defaults
+
+  # ---- 项目 C (测试项目，部分覆盖配置) ----
+  "1003":
+    name: "测试项目C"
+    description: "测试验证项目"
+    
+    # 仅覆盖standard_requirement中的部分状态映射
+    workflow_templates:
+      standard_requirement:
+        status_mappings:
+          "New": "tester"
+          "Draft": "tester"
+          # 其他状态使用global_defaults中的配置
+    
+    # 添加项目特有的Tracker匹配规则
+    tracker_matching:
+      rules:
+        - match_type: "name_pattern"
+          pattern: "Test Requirements"
+          template: "standard_requirement"
+
+# ==========================================
+# 4. 系统级配置 (日志、重试等)
+# ==========================================
+logging:
+  level: "INFO"
+  file: "workflow_notifier.log"
+  max_size_mb: 10
+  backup_count: 5
+
+execution:
+  max_retries: 3
+  retry_delay_seconds: 1
+  timeout_seconds: 30

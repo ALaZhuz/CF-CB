@@ -23,6 +23,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -753,6 +755,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
+<<<<<<< Updated upstream
      * 获取所有评审
      */
     @Override
@@ -813,5 +816,101 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 ReviewStatisticsResponse.class
         );
         return response.getBody();
+=======
+     * 获取条目状态变更历史
+     *
+     * 调用 Codebeamer History API 获取条目的所有修改历史。
+     *
+     * @param itemId 条目ID
+     * @return 历史记录响应
+     */
+    @Override
+    public CBHistoryResponse getItemHistory(Integer itemId) {
+        if (itemId == null) {
+            return null;
+        }
+
+        String url = baseUrl + "/api/v3/items/" + itemId + "/history";
+
+        ResponseEntity<CBHistoryResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                httpHelper.getAuthEntity(),
+                CBHistoryResponse.class
+        );
+
+        CBHistoryResponse historyResponse = response.getBody();
+        if (historyResponse == null || historyResponse.getVersions() == null) {
+            log.warn("条目历史记录为空, itemId={}", itemId);
+            return null;
+        }
+
+        log.debug("获取条目历史记录成功, itemId={}, versionCount={}", itemId, historyResponse.getVersions().size());
+        return historyResponse;
+    }
+
+    /**
+     * 获取条目进入目标状态的时间
+     *
+     * 从历史记录中查找最后一次状态切换到目标状态的时间。
+     * 遍历 versions（从最新到最旧），找 changes 中 field.name = "Status" 且 newValue = targetState 的版本。
+     *
+     * @param itemId 条目ID
+     * @param targetState 目标状态名称
+     * @return 进入目标状态的时间，未找到返回当前时间（兜底）
+     */
+    @Override
+    public LocalDateTime getEnterStateTime(Integer itemId, String targetState) {
+        if (itemId == null || targetState == null) {
+            return LocalDateTime.now();
+        }
+
+        CBHistoryResponse historyResponse = getItemHistory(itemId);
+        if (historyResponse == null || historyResponse.getVersions() == null) {
+            log.warn("无法获取条目历史记录, 使用当前时间作为enter_state_time, itemId={}", itemId);
+            return LocalDateTime.now();
+        }
+
+        // 遍历 versions（从最新到最旧）
+        List<CBHistoryVersion> versions = historyResponse.getVersions();
+        // 反转列表，从最新版本开始查找
+        List<CBHistoryVersion> reversedVersions = new ArrayList<>(versions);
+        Collections.reverse(reversedVersions);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+
+        for (CBHistoryVersion version : reversedVersions) {
+            if (version.getChanges() == null || version.getChanges().isEmpty()) {
+                continue;
+            }
+
+            // 检查本次变更是否包含状态切换
+            for (CBHistoryChange change : version.getChanges()) {
+                // 检查是否是状态字段变更
+                if (change.getField() != null && "Status".equals(change.getField().getName())) {
+                    // 检查新状态是否为目标状态
+                    if (change.getNewValue() != null && change.getNewValue().getValues() != null) {
+                        for (CBHistoryChange.ValueItem valueItem : change.getNewValue().getValues()) {
+                            if (targetState.equals(valueItem.getName())) {
+                                // 找到了！解析时间
+                                String modifiedAt = version.getModifiedAt();
+                                if (modifiedAt != null) {
+                                    try {
+                                        return LocalDateTime.parse(modifiedAt, formatter);
+                                    } catch (Exception e) {
+                                        log.warn("解析时间失败, modifiedAt={}, itemId={}", modifiedAt, itemId);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 未找到状态变更记录，使用当前时间（兜底）
+        log.warn("未找到状态变更记录, 使用当前时间, itemId={}, targetState={}", itemId, targetState);
+        return LocalDateTime.now();
+>>>>>>> Stashed changes
     }
 }

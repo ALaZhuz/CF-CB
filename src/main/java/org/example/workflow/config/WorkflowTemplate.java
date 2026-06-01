@@ -41,5 +41,8 @@ public class WorkflowTemplate {
 
         /** 是否发送通知：false表示明确不通知，null且notifyField有值则发送通知 */
         private Boolean notify;
+
+        /** 是否启用定时通知：true表示开启定时通知，false表示关闭，默认true */
+        private Boolean scheduledNotify;
     }
 }

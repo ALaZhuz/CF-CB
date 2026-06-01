@@ -1,0 +1,232 @@
+package org.example.workflow.cache;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.example.db.entity.OrgCache;
+import org.example.db.mapper.OrgCacheMapper;
+import org.example.model.dto.response.ItemInfoResponse;
+import org.example.service.CBSwaggerService;
+import org.example.service.DingService;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 组织架构缓存服务类
+ *
+ * 用于缓存员工与科长/部长的关系，减少钉钉API调用频率。
+ * 实现启动时全量同步、定时刷新、缓存未命中实时查询补缓存的机制。
+ *
+ * @author system
+ * @since 1.0
+ */
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class OrgCacheService {
+
+    private final CBSwaggerService cbSwaggerService;
+    private final DingService dingService;
+    private final OrgCacheMapper orgCacheMapper;
+
+    /**
+     * 启动时初始化组织架构缓存
+     *
+     * 从Codebeamer获取所有用户，逐一调用钉钉API获取科长/部长关系。
+     */
+    @PostConstruct
+    public void initCache() {
+        log.info("开始初始化组织架构缓存...");
+        syncOrgCache();
+        log.info("组织架构缓存初始化完成, 缓存记录数: {}", orgCacheMapper.count());
+    }
+
+    /**
+     * 定期刷新组织架构缓存
+     *
+     * 每小时执行一次，重新同步所有用户的科长/部长关系。
+     */
+    @Scheduled(fixedRate = 3600000) // 1小时 = 3600000毫秒
+    public void scheduledRefresh() {
+        log.info("开始定期刷新组织架构缓存...");
+        syncOrgCache();
+        log.info("组织架构缓存刷新完成, 缓存记录数: {}", orgCacheMapper.count());
+    }
+
+    /**
+     * 同步组织架构缓存核心逻辑
+     *
+     * 获取Codebeamer所有用户并调用钉钉API获取科长/部长关系。
+     */
+    private void syncOrgCache() {
+        try {
+            // 获取Codebeamer所有用户
+            List<ItemInfoResponse.MemberInfo> users = cbSwaggerService.getAllUsers();
+
+            if (users == null || users.isEmpty()) {
+                log.warn("Codebeamer用户列表为空，无法初始化组织架构缓存");
+                return;
+            }
+
+            // 清空旧缓存
+            orgCacheMapper.deleteAll();
+
+            // 收集同步结果
+            int successCount = 0;
+            int failCount = 0;
+
+            // 逐一同步用户
+            for (ItemInfoResponse.MemberInfo user : users) {
+                String userid = user.getUserId();
+                if (userid == null || userid.isEmpty()) {
+                    continue;
+                }
+
+                try {
+                    // 调用钉钉API获取科长/部长
+                    String managerInfo = dingService.queryOrganizationManager(userid);
+
+                    OrgCache cache = new OrgCache();
+                    cache.setUserid(userid);
+                    cache.setLastSyncTime(LocalDateTime.now());
+
+                    // 解析科长/部长信息（格式：科长userid,部长userid）
+                    if (managerInfo != null && !managerInfo.isEmpty()) {
+                        String[] parts = managerInfo.split(",");
+                        if (parts.length >= 1 && !parts[0].isEmpty()) {
+                            cache.setManagerUserid(parts[0]);
+                        }
+                        if (parts.length >= 2 && !parts[1].isEmpty()) {
+                            cache.setDirectorUserid(parts[1]);
+                        }
+                    }
+
+                    orgCacheMapper.insert(cache);
+                    successCount++;
+
+                } catch (Exception e) {
+                    log.error("同步用户组织架构失败, userid={}, error={}", userid, e.getMessage());
+                    failCount++;
+                }
+            }
+
+            log.info("组织架构同步完成, 成功={}, 失败={}", successCount, failCount);
+
+        } catch (Exception e) {
+            log.error("组织架构缓存同步失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 获取员工的科长userid
+     *
+     * 先查缓存，缓存未命中则实时查询钉钉API并补缓存。
+     *
+     * @param userid 员工钉钉 userid
+     * @return 科长userid，不存在返回null
+     */
+    public String getManager(String userid) {
+        if (userid == null || userid.isEmpty()) {
+            return null;
+        }
+
+        // 查缓存
+        OrgCache cache = orgCacheMapper.selectByUserid(userid);
+        if (cache != null && cache.getManagerUserid() != null) {
+            return cache.getManagerUserid();
+        }
+
+        // 缓存未命中，实时查询钉钉API
+        log.debug("缓存未命中，实时查询科长: userid={}", userid);
+        try {
+            String managerInfo = dingService.queryOrganizationManager(userid);
+            if (managerInfo != null && !managerInfo.isEmpty()) {
+                String[] parts = managerInfo.split(",");
+                String managerUserid = parts.length >= 1 && !parts[0].isEmpty() ? parts[0] : null;
+
+                // 补缓存
+                if (cache == null) {
+                    cache = new OrgCache();
+                    cache.setUserid(userid);
+                    cache.setLastSyncTime(LocalDateTime.now());
+                }
+                cache.setManagerUserid(managerUserid);
+                orgCacheMapper.insert(cache);
+
+                return managerUserid;
+            }
+        } catch (Exception e) {
+            log.error("实时查询科长失败, userid={}, error={}", userid, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取员工的部长userid
+     *
+     * 先查缓存，缓存未命中则实时查询钉钉API并补缓存。
+     *
+     * @param userid 员工钉钉 userid
+     * @return 部长userid，不存在返回null
+     */
+    public String getDirector(String userid) {
+        if (userid == null || userid.isEmpty()) {
+            return null;
+        }
+
+        // 查缓存
+        OrgCache cache = orgCacheMapper.selectByUserid(userid);
+        if (cache != null && cache.getDirectorUserid() != null) {
+            return cache.getDirectorUserid();
+        }
+
+        // 缓存未命中，实时查询钉钉API
+        log.debug("缓存未命中，实时查询部长: userid={}", userid);
+        try {
+            String managerInfo = dingService.queryOrganizationManager(userid);
+            if (managerInfo != null && !managerInfo.isEmpty()) {
+                String[] parts = managerInfo.split(",");
+                String directorUserid = parts.length >= 2 && !parts[1].isEmpty() ? parts[1] : null;
+
+                // 补缓存
+                if (cache == null) {
+                    cache = new OrgCache();
+                    cache.setUserid(userid);
+                    cache.setLastSyncTime(LocalDateTime.now());
+                }
+                cache.setDirectorUserid(directorUserid);
+                orgCacheMapper.insert(cache);
+
+                return directorUserid;
+            }
+        } catch (Exception e) {
+            log.error("实时查询部长失败, userid={}, error={}", userid, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 手动刷新组织架构缓存
+     *
+     * 提供手动触发刷新的接口，用于运维场景。
+     */
+    public void manualRefresh() {
+        log.info("手动触发刷新组织架构缓存...");
+        syncOrgCache();
+    }
+
+    /**
+     * 获取当前缓存大小
+     *
+     * @return 缓存记录数
+     */
+    public int getCacheSize() {
+        return orgCacheMapper.count();
+    }
+}

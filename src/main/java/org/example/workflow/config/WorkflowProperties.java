@@ -31,6 +31,9 @@ public class WorkflowProperties {
     /** 钉钉通知模式配置 */
     private DingtalkConfig dingtalk = new DingtalkConfig();
 
+    /** 分类通知配置 */
+    private ClassifyConfigConfig classifyConfig = new ClassifyConfigConfig();
+
     /** Tracker类型映射配置 */
     private TypeMappingsConfig typeMappings = new TypeMappingsConfig();
 
@@ -53,6 +56,21 @@ public class WorkflowProperties {
 
         /** 个人钉钉Webhook URL（当mode为personal时使用） */
         private String personalWebhookUrl;
+    }
+
+    /**
+     * 分类通知配置类
+     *
+     * 支持全局和项目级分类配置。
+     * 项目级完全覆盖全局，不追加。
+     */
+    @Data
+    public static class ClassifyConfigConfig {
+        /** 全局分类配置 */
+        private ClassifyConfig global = new ClassifyConfig();
+
+        /** 项目级分类配置：projectId -> ClassifyConfig */
+        private Map<String, ClassifyConfig> projects = new HashMap<>();
     }
 
     /**

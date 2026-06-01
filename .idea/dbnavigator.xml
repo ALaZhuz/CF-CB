@@ -6,15 +6,26 @@
   </component>
   <component name="DBNavigator.Project.DataEditorManager">
     <record-view-column-sorting-type value="BY_INDEX" />
+<<<<<<< Updated upstream
     <value-preview-text-wrapping value="true" />
+=======
+    <value-preview-text-wrapping value="false" />
+>>>>>>> Stashed changes
     <value-preview-pinned value="false" />
   </component>
   <component name="DBNavigator.Project.DatabaseAssistantManager">
     <assistants>
+<<<<<<< Updated upstream
       <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="PUBLIC" default-profile-name="" selected-chat-id="" availability="AVAILABLE" acknowledgement="NONE" selected="true">
         <tools />
       </assistant-state>
       <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
+=======
+      <assistant-state connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
+        <tools />
+      </assistant-state>
+      <assistant-state connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" assistant-type="PUBLIC" default-profile-name="" selected-chat-id="" availability="AVAILABLE" acknowledgement="NONE" selected="true">
+>>>>>>> Stashed changes
         <tools />
       </assistant-state>
     </assistants>
@@ -29,20 +40,33 @@
     <loaded-nodes />
   </component>
   <component name="DBNavigator.Project.DatabaseConsoleManager">
+<<<<<<< Updated upstream
     <connection id="0ca97f50-828f-447b-82d8-e728ab034745">
       <console name="Connection" type="STANDARD" schema="main" session="Main" />
+=======
+    <connection id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737">
+      <console name="Connection" type="STANDARD" schema="notification" session="Main" />
+>>>>>>> Stashed changes
     </connection>
   </component>
   <component name="DBNavigator.Project.DatabaseEditorStateManager">
     <last-used-providers />
   </component>
   <component name="DBNavigator.Project.DatabaseFileManager">
+<<<<<<< Updated upstream
     <open-files />
+=======
+    <open-files>
+      <object connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" object-ref="schemas/notification/tables/notify_log" />
+      <object connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" object-ref="schemas/notification/tables/item_state_record" />
+    </open-files>
+>>>>>>> Stashed changes
   </component>
   <component name="DBNavigator.Project.DatabasePrerequisiteManager">
     <prerequisites />
   </component>
   <component name="DBNavigator.Project.DatabaseSessionManager">
+<<<<<<< Updated upstream
     <connection id="0ca97f50-828f-447b-82d8-e728ab034745" />
   </component>
   <component name="DBNavigator.Project.DatasetFilterManager">
@@ -51,6 +75,14 @@
         <condition column="review_id" operator="=" value="" active="true" />
       </filter>
     </filter-actions>
+=======
+    <connection id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" />
+  </component>
+  <component name="DBNavigator.Project.DatasetFilterManager">
+    <filter-actions connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" dataset="notification.notify_log" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" dataset="notification.item_state_record" active-filter-id="EMPTY_FILTER" />
+    <filter-actions connection-id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" dataset="notification.sqlite_sequence" active-filter-id="EMPTY_FILTER" />
+>>>>>>> Stashed changes
   </component>
   <component name="DBNavigator.Project.ObjectQuickFilterManager">
     <last-used-operator value="EQUAL" />
@@ -58,7 +90,11 @@
   </component>
   <component name="DBNavigator.Project.Settings">
     <connections>
+<<<<<<< Updated upstream
       <connection source-id="" id="0ca97f50-828f-447b-82d8-e728ab034745" active="true" signed="true">
+=======
+      <connection source-id="" id="cc86cb4d-e3b8-4c86-9d81-dab7bb55c737" active="true" signed="true">
+>>>>>>> Stashed changes
         <database>
           <name value="Connection" />
           <description value="" />
@@ -78,7 +114,11 @@
           <protocol value="" />
           <url-parameters />
           <files>
+<<<<<<< Updated upstream
             <file path="D:\IdeaProjects\cf-cb\data\review-notify.db" schema="main" />
+=======
+            <file path="D:\CF\data\notification.db" schema="notification" />
+>>>>>>> Stashed changes
           </files>
           <type value="NONE" />
           <user value="" />
