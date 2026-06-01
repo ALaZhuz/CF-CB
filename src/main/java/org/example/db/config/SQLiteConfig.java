@@ -122,6 +122,48 @@ public class SQLiteConfig {
                 """;
             stmt.execute(createTable2);
 
+            // 创建表3: org_cache（组织架构缓存表）
+            // 用于缓存员工与科长/部长的关系，减少钉钉API调用
+            String createTable3 = """
+                CREATE TABLE IF NOT EXISTS org_cache (
+                    userid TEXT PRIMARY KEY,
+                    manager_userid TEXT,
+                    director_userid TEXT,
+                    dept_id TEXT,
+                    last_sync_time DATETIME
+                )
+                """;
+            stmt.execute(createTable3);
+
+            // 创建表4: config_meta（配置元数据表）
+            // 用于记录初始化状态、YAML配置变更检测、配置存储
+            String createTable4 = """
+                CREATE TABLE IF NOT EXISTS config_meta (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    initialized BOOLEAN DEFAULT FALSE,
+                    yaml_content TEXT,
+                    yaml_modified_time DATETIME,
+                    last_loaded_time DATETIME,
+                    updated_by TEXT
+                )
+                """;
+            stmt.execute(createTable4);
+
+            // 兼容旧数据库：添加缺失的列（如果不存在）
+            try {
+                stmt.execute("ALTER TABLE config_meta ADD COLUMN yaml_content TEXT");
+            } catch (SQLException e) {
+                // 列已存在，忽略错误
+            }
+            try {
+                stmt.execute("ALTER TABLE config_meta ADD COLUMN updated_by TEXT");
+            } catch (SQLException e) {
+                // 列已存在，忽略错误
+            }
+
+            // 初始化 config_meta 表：插入默认记录（如果不存在）
+            stmt.execute("INSERT OR IGNORE INTO config_meta (id, initialized, yaml_modified_time, last_loaded_time) VALUES (1, FALSE, NULL, NULL)");
+
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite database", e);
         }
