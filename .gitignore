@@ -39,3 +39,8 @@ build/
 
 .idea/vcs.xml
 .idea/dbnavigator.xml
+*.md
+*.log
+*.yaml
+*.db
+*.docx
