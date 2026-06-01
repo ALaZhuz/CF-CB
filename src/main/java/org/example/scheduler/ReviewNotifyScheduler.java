@@ -11,13 +11,14 @@ package org.example.scheduler;
 import lombok.RequiredArgsConstructor;
 import org.example.service.impl.ReviewNotificationServiceImpl;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class ReviewNotifyScheduler {
-    private final ReviewNotificationServiceImpl reviewNotificationService;
+    private final ReviewNotifyAsyncTask reviewNotifyAsyncTask;
 
     /**
      * 30 分钟轮询任务
@@ -26,8 +27,7 @@ public class ReviewNotifyScheduler {
      */
     @Scheduled(fixedDelayString = "${dingtalk.fixed-delay}")
     public void runThirtyMinuteTasks() {
-        reviewNotificationService.syncLifecycle();
-        reviewNotificationService.runThirtyMinuteTasks();
+        reviewNotifyAsyncTask.runThirtyMinuteTasks();
     }
 
     /**
@@ -37,6 +37,6 @@ public class ReviewNotifyScheduler {
      */
     @Scheduled(cron = "${dingtalk.notify-cron}")
     public void runEightOClockTasks() {
-        reviewNotificationService.runEightOClockTasks();
+        reviewNotifyAsyncTask.runEightOClockTasks();
     }
 }

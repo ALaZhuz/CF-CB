@@ -177,6 +177,7 @@ public class ReviewNotificationServiceImpl {
      * 同步sqlite，只保存OPEN评审
      */
     public void syncLifecycle() {
+        log.info("30分钟轮询任务开启！");
         // 1. 获取所有评审项
         List<ReviewItem> reviews = cbSwaggerService.fetchAllReviews();
         // 2. 评审状态分组映射：状态 -> (收件人 -> 通知列表)
