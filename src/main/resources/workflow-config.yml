@@ -4,7 +4,7 @@ dingtalk:
   mode: enterprise
   personal-webhook-url: ""
 
-default-notify-time: "13:32"
+default-notify-time: "19:40"
 
 classify-config:
   # 分类通知配置（定时通知功能）
@@ -17,7 +17,7 @@ classify-config:
             - category: "High"
               member-interval-days: 1
               manager-escalate-days: 1
-              director-escalate-days: 2
+              director-escalate-days: 1
             - category: "Normal"
               member-interval-days: 1
               manager-escalate-days: 3

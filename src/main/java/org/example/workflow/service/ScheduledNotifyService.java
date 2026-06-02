@@ -172,22 +172,25 @@ public class ScheduledNotifyService {
                 return;
             }
 
+            // 用于追踪发送成功的条目ID
+            Set<Integer> successItemIds = new HashSet<>();
+
             int memberNotifyCount = 0;
             int managerNotifyCount = 0;
             int directorNotifyCount = 0;
 
             // === 第二阶段：发送成员通知（逐人） ===
-            memberNotifyCount = sendAllMemberNotifications(notifyDataList);
+            memberNotifyCount = sendAllMemberNotifications(notifyDataList, successItemIds);
 
             // === 第三阶段：按科长跨条目聚合发送 ===
-            managerNotifyCount = sendAllManagerNotificationsAggregated(notifyDataList);
+            managerNotifyCount = sendAllManagerNotificationsAggregated(notifyDataList, successItemIds);
 
             // === 第四阶段：按部长跨条目聚合发送 ===
-            directorNotifyCount = sendAllDirectorNotificationsAggregated(notifyDataList);
+            directorNotifyCount = sendAllDirectorNotificationsAggregated(notifyDataList, successItemIds);
 
-            // === 第五阶段：更新所有条目的 last_notify_time ===
-            for (ItemNotifyData data : notifyDataList) {
-                itemStateRecordMapper.updateLastNotifyTime(data.getItemId(), LocalDateTime.now());
+            // === 第五阶段：只更新发送成功的条目的 last_notify_time ===
+            for (Integer itemId : successItemIds) {
+                itemStateRecordMapper.updateLastNotifyTime(itemId, LocalDateTime.now());
             }
 
             long duration = System.currentTimeMillis() - startTime;
@@ -351,8 +354,11 @@ public class ScheduledNotifyService {
 
     /**
      * 发送所有成员通知（逐人）
+     *
+     * @param notifyDataList 条目通知数据列表
+     * @param successItemIds 发送成功的条目ID集合（用于追踪）
      */
-    private int sendAllMemberNotifications(List<ItemNotifyData> notifyDataList) {
+    private int sendAllMemberNotifications(List<ItemNotifyData> notifyDataList, Set<Integer> successItemIds) {
         int count = 0;
 
         for (ItemNotifyData data : notifyDataList) {
@@ -360,6 +366,7 @@ public class ScheduledNotifyService {
                 continue;
             }
 
+            boolean anySuccess = false;
             for (ItemInfoResponse.MemberInfo member : data.members) {
                 String userid = member.getUserId();
                 String message = formatMemberMessage(data.itemInfo, data.trackerTypeDisplay, data.stayDays, member);
@@ -369,10 +376,16 @@ public class ScheduledNotifyService {
                     log.info("成员通知发送成功: itemId={}, userid={}, 消息内容=\n{}", data.itemId, userid, message);
                     saveNotifyLog(data.itemId, userid, "定时成员", "成功");
                     count++;
+                    anySuccess = true;
                 } catch (Exception e) {
                     log.error("成员通知发送失败: itemId={}, userid={}, error={}", data.itemId, userid, e.getMessage());
                     saveNotifyLog(data.itemId, userid, "定时成员", "失败: " + e.getMessage());
                 }
+            }
+
+            // 只要有一个成员通知成功，就记录该条目为成功
+            if (anySuccess) {
+                successItemIds.add(data.itemId);
             }
         }
 
@@ -381,10 +394,13 @@ public class ScheduledNotifyService {
 
     /**
      * 按科长跨条目聚合发送通知
+     *
+     * @param notifyDataList 条目通知数据列表
+     * @param successItemIds 发送成功的条目ID集合（用于追踪）
      */
-    private int sendAllManagerNotificationsAggregated(List<ItemNotifyData> notifyDataList) {
-        // 按 科长 -> 条目列表 聚合
-        Map<String, List<ItemNotifyData>> managerGroup = new HashMap<>();
+    private int sendAllManagerNotificationsAggregated(List<ItemNotifyData> notifyDataList, Set<Integer> successItemIds) {
+        // 按 科长 -> 条目列表 聚合（使用 Set 去重）
+        Map<String, Set<ItemNotifyData>> managerGroup = new HashMap<>();
 
         for (ItemNotifyData data : notifyDataList) {
             if (!shouldSendManagerNotification(data.stayDays, data.classifyRule)) {
@@ -395,7 +411,8 @@ public class ScheduledNotifyService {
                 String userid = member.getUserId();
                 String managerId = orgCacheService.getManager(userid);
                 if (managerId != null && dingUserCacheService.isValidUserId(managerId)) {
-                    managerGroup.computeIfAbsent(managerId, k -> new ArrayList<>()).add(data);
+                    // 使用 computeIfAbsent 创建 Set，并添加条目（自动去重）
+                    managerGroup.computeIfAbsent(managerId, k -> new LinkedHashSet<>()).add(data);
                 }
             }
         }
@@ -403,9 +420,9 @@ public class ScheduledNotifyService {
         int count = 0;
 
         // 逐科长发送聚合消息
-        for (Map.Entry<String, List<ItemNotifyData>> entry : managerGroup.entrySet()) {
+        for (Map.Entry<String, Set<ItemNotifyData>> entry : managerGroup.entrySet()) {
             String managerId = entry.getKey();
-            List<ItemNotifyData> items = entry.getValue();
+            List<ItemNotifyData> items = new ArrayList<>(entry.getValue());  // Set 转 List
 
             String message = formatCrossItemAggregatedMessage(items, "科长");
             try {
@@ -413,10 +430,14 @@ public class ScheduledNotifyService {
                 log.info("科长聚合通知发送成功: managerId={}, 条目数={}, 消息内容=\n{}", managerId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, managerId, "定时科长", "成功");
+                    successItemIds.add(data.itemId);  // 记录成功的条目
                 }
                 count++;
             } catch (Exception e) {
                 log.error("科长聚合通知发送失败: managerId={}, error={}", managerId, e.getMessage());
+                for (ItemNotifyData data : items) {
+                    saveNotifyLog(data.itemId, managerId, "定时科长", "失败: " + e.getMessage());
+                }
             }
         }
 
@@ -425,10 +446,13 @@ public class ScheduledNotifyService {
 
     /**
      * 按部长跨条目聚合发送通知
+     *
+     * @param notifyDataList 条目通知数据列表
+     * @param successItemIds 发送成功的条目ID集合（用于追踪）
      */
-    private int sendAllDirectorNotificationsAggregated(List<ItemNotifyData> notifyDataList) {
-        // 按 部长 -> 条目列表 聚合
-        Map<String, List<ItemNotifyData>> directorGroup = new HashMap<>();
+    private int sendAllDirectorNotificationsAggregated(List<ItemNotifyData> notifyDataList, Set<Integer> successItemIds) {
+        // 按 部长 -> 条目列表 聚合（使用 Set 去重）
+        Map<String, Set<ItemNotifyData>> directorGroup = new HashMap<>();
 
         for (ItemNotifyData data : notifyDataList) {
             if (!shouldSendDirectorNotification(data.stayDays, data.classifyRule)) {
@@ -439,7 +463,8 @@ public class ScheduledNotifyService {
                 String userid = member.getUserId();
                 String directorId = orgCacheService.getDirector(userid);
                 if (directorId != null && dingUserCacheService.isValidUserId(directorId)) {
-                    directorGroup.computeIfAbsent(directorId, k -> new ArrayList<>()).add(data);
+                    // 使用 computeIfAbsent 创建 Set，并添加条目（自动去重）
+                    directorGroup.computeIfAbsent(directorId, k -> new LinkedHashSet<>()).add(data);
                 }
             }
         }
@@ -447,9 +472,9 @@ public class ScheduledNotifyService {
         int count = 0;
 
         // 逐部长发送聚合消息
-        for (Map.Entry<String, List<ItemNotifyData>> entry : directorGroup.entrySet()) {
+        for (Map.Entry<String, Set<ItemNotifyData>> entry : directorGroup.entrySet()) {
             String directorId = entry.getKey();
-            List<ItemNotifyData> items = entry.getValue();
+            List<ItemNotifyData> items = new ArrayList<>(entry.getValue());  // Set 转 List
 
             String message = formatCrossItemAggregatedMessage(items, "部长");
             try {
@@ -457,10 +482,14 @@ public class ScheduledNotifyService {
                 log.info("部长聚合通知发送成功: directorId={}, 条目数={}, 消息内容=\n{}", directorId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, directorId, "定时部长", "成功");
+                    successItemIds.add(data.itemId);  // 记录成功的条目
                 }
                 count++;
             } catch (Exception e) {
                 log.error("部长聚合通知发送失败: directorId={}, error={}", directorId, e.getMessage());
+                for (ItemNotifyData data : items) {
+                    saveNotifyLog(data.itemId, directorId, "定时部长", "失败: " + e.getMessage());
+                }
             }
         }
 
@@ -474,7 +503,9 @@ public class ScheduledNotifyService {
      */
     private String formatCrossItemAggregatedMessage(List<ItemNotifyData> items, String notifyLevel) {
         StringBuilder sb = new StringBuilder();
-        sb.append("您好，以下问题未及时处理，请知悉！\n\n");
+        // 使用第一个条目的 trackerTypeDisplay 作为消息开头
+        String typeDisplay = items.isEmpty() ? "问题" : items.get(0).trackerTypeDisplay;
+        sb.append("您好，以下").append(typeDisplay).append("未及时处理，请知悉！\n\n");
 
         for (int i = 0; i < items.size(); i++) {
             ItemNotifyData data = items.get(i);
@@ -563,8 +594,8 @@ public class ScheduledNotifyService {
                                         int stayDays, ItemInfoResponse.MemberInfo member) {
         String memberName = member.getDisplayName() != null ? member.getDisplayName() : member.getName();
         // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
-        return String.format("您好，以下问题未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
-                trackerTypeDisplay, itemInfo.getName(), itemInfo.getStatus(), stayDays, memberName);
+        return String.format("您好，以下%s未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
+                trackerTypeDisplay, trackerTypeDisplay, itemInfo.getName(), itemInfo.getStatus(), stayDays, memberName);
     }
 
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {
@@ -579,6 +610,8 @@ public class ScheduledNotifyService {
 
     /**
      * 条目通知数据类
+     *
+     * 基于 itemId 实现 equals 和 hashCode，用于 Set 去重
      */
     private static class ItemNotifyData {
         Integer itemId;
@@ -590,6 +623,19 @@ public class ScheduledNotifyService {
 
         Integer getItemId() {
             return itemId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ItemNotifyData that = (ItemNotifyData) o;
+            return Objects.equals(itemId, that.itemId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(itemId);
         }
     }
 }

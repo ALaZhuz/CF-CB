@@ -45,31 +45,38 @@ public class ConfigMetaService {
     private String configImport;
 
     /**
-     * 服务启动时同步配置到数据库
+     * 服务启动时同步配置到数据库并更新内存配置
      *
-     * 如果数据库中没有配置，从 YAML 文件读取并存入数据库。
+     * 每次启动都强制从 YAML 文件读取配置并覆盖数据库，
+     * 同时更新 WorkflowProperties 内存配置，确保配置与 YAML 文件保持一致。
      */
     @PostConstruct
     public void syncConfigToDatabase() {
         try {
-            ConfigMeta configMeta = configMetaMapper.select();
-
-            if (configMeta == null || configMeta.getYamlContent() == null) {
-                log.info("数据库中无配置，从 YAML 文件同步...");
-
-                Path yamlPath = getYamlFilePath();
-                if (yamlPath != null && Files.exists(yamlPath)) {
-                    String yamlContent = Files.readString(yamlPath);
-                    LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
-
-                    configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "system");
-                    log.info("配置已同步到数据库");
-                }
-            } else {
-                log.info("数据库已有配置，跳过同步");
+            Path yamlPath = getYamlFilePath();
+            if (yamlPath == null || !Files.exists(yamlPath)) {
+                log.warn("YAML配置文件不存在，跳过同步");
+                return;
             }
+
+            log.info("从 YAML 文件同步配置: {}", yamlPath);
+
+            String yamlContent = Files.readString(yamlPath);
+            LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
+
+            // 1. 更新数据库
+            configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "system-startup");
+            log.info("配置已同步到数据库");
+
+            // 2. 更新内存中的 WorkflowProperties
+            Yaml yaml = new Yaml();
+            Map<String, Object> configMap = yaml.load(new FileInputStream(yamlPath.toFile()));
+            bindConfigToProperties(configMap);
+
+            log.info("启动配置同步完成");
+
         } catch (Exception e) {
-            log.warn("同步配置到数据库失败: {}", e.getMessage());
+            log.error("同步配置失败: {}", e.getMessage(), e);
         }
     }
 
