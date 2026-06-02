@@ -28,6 +28,9 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "")
 public class WorkflowProperties {
 
+    /** 全局默认通知时间（每天执行定时通知的时间，格式：HH:mm，默认08:00） */
+    private String defaultNotifyTime = "08:00";
+
     /** 钉钉通知模式配置 */
     private DingtalkConfig dingtalk = new DingtalkConfig();
 
@@ -87,9 +90,6 @@ public class WorkflowProperties {
 
         /** tracker-type 级分类配置：trackerType -> ClassifyConfig */
         private Map<String, ClassifyConfig> trackerTypes;
-
-        /** 默认通知时间（每天执行定时通知的时间） */
-        private String defaultNotifyTime;
     }
 
     /**

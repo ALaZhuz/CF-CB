@@ -2,6 +2,14 @@ spring:
   config:
     import: classpath:workflow-config.yml
 
+# 日志配置：输出到文件
+logging:
+  file:
+    name: logs/cf-cb.log
+  level:
+    root: INFO
+    org.example: INFO
+
 mybatis:
   type-handlers-package: org.example.db.config
   configuration:

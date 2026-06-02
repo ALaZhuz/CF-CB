@@ -1,58 +1,35 @@
 # 工作流通知配置文件
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 钉钉通知模式配置
-# enterprise（企业钉钉）或 personal（个人钉钉Webhook）
-# ─────────────────────────────────────────────────────────────────────────────
 dingtalk:
   mode: enterprise
   personal-webhook-url: ""
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 分类通知配置（定时通知功能）
-# 说明：classify-config 是可选配置，不配置则不启用分类通知
-#
-# 配置层级优先级（从高到低）：
-# 1. tracker级（在 projects.trackers 中配置 classify-field/classify-rules）
-# 2. 项目级 tracker-types（按 tracker-type 批量配置，如 Bug/Requirement）
-# 3. 项目级 global（项目内所有 tracker-type 默认配置）
-# 4. 全局级 global（所有项目默认配置）
-# ─────────────────────────────────────────────────────────────────────────────
-classify-config:
-  # global: 全局级配置（所有项目默认）
+default-notify-time: "13:32"
 
+classify-config:
+  # 分类通知配置（定时通知功能）
   projects:
     "5":
-      # 项目级 global：该项目所有 tracker-type 默认配置
-      # global:
-      #   classify-field: "priority"
-      #   classify-rules: ...
-
-      # 项目级 tracker-types：按 tracker-type 独立配置
-      # 只配置需要分类通知的 tracker-type，未配置的 tracker-type 不启用分类通知
       tracker-types:
         "Bug":                                    # Bug 类型启用分类通知
           classify-field: "priority"
           classify-rules:
-            - category: "高"
+            - category: "High"
               member-interval-days: 1
               manager-escalate-days: 1
               director-escalate-days: 2
-            - category: "中"
-              member-interval-days: 2
+            - category: "Normal"
+              member-interval-days: 1
               manager-escalate-days: 3
               director-escalate-days: 5
-            - category: "低"
-              member-interval-days: 3
+            - category: "Low"
+              member-interval-days: 1
               manager-escalate-days: 5
               director-escalate-days: null
         # "Requirement": null                    # Requirement 类型不启用分类通知（可省略）
         # "Task":                                 # Task 类型也可配置独立规则
         #   classify-field: "severities"
         #   classify-rules: ...
-
-      # 默认通知时间（每天执行定时通知的时间）
-      default-notify-time: "17:11"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tracker类型映射（决定消息中 {trackertype} 显示内容）
@@ -67,6 +44,7 @@ type-mappings:
     "5":
       Requirement: "智驾需求"
       Bug: "问题"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 额外字段配置（动态插入到链接行之前）
 # 项目级完全覆盖全局，不追加
@@ -77,7 +55,6 @@ extra-fields:
       label:
   projects:
     "5":
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 全局工作流模板（无description字段）
@@ -96,7 +73,7 @@ global-workflows:
         notify: false
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 项目级配置
+# 项目级工作流配置
 # ─────────────────────────────────────────────────────────────────────────────
 projects:
   - project-id: 5
@@ -153,20 +130,5 @@ projects:
       - tracker-id: 5295
         # tracker级 extra-fields（完全覆盖项目级）
         extra-fields:
-          - field: "Priority"
+          - field: "priority"
             label: "严重程度"
-        # tracker级 classify-field 和 classify-rules（完全覆盖上级）
-        classify-field: "Priority"        # 自定义字段
-        classify-rules:
-          - category: "High"
-            member-interval-days: 1
-            manager-escalate-days: 1
-            director-escalate-days: 2
-        # tracker级状态配置示例
-#        states:
-#          - name: "Draft"
-#            notify-field: "assignedTo"
-#            scheduled-notify: true           # 开启定时通知（默认 true，可省略）
-#          - name: "Waiting for approval"
-#            notify-field: "assignedTo"
-#            scheduled-notify: false          # 显式关闭定时通知（只即时通知，不定时提醒）

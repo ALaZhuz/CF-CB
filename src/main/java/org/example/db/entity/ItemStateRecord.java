@@ -28,6 +28,9 @@ public class ItemStateRecord {
     /** Tracker ID，条目所属的跟踪器 */
     private Integer trackerId;
 
+    /** Tracker 类型名称（如 Bug、Requirement），用于定时通知分类匹配 */
+    private String trackerType;
+
     /** 项目ID，条目所属的项目 */
     private Integer projectId;
 

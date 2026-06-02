@@ -167,8 +167,8 @@ public class WorkflowNotifyService {
                 }
             }
 
-            // 9. 持久化状态记录
-            saveItemStateRecord(itemId, itemInfo.getName(), trackerId, projectId, targetState);
+            // 9. 持久化状态记录（记录 trackerType 供定时通知使用）
+            saveItemStateRecord(itemId, itemInfo.getName(), trackerId, trackerType, projectId, targetState);
 
             // 10. 返回响应
             response.setSuccess(true);
@@ -340,22 +340,24 @@ public class WorkflowNotifyService {
      * @param itemId 条目ID
      * @param itemName 条目名称
      * @param trackerId tracker ID
+     * @param trackerType tracker 类型名称（如 Bug、Requirement）
      * @param projectId 项目ID
      * @param targetState 目标状态
      */
     private void saveItemStateRecord(Integer itemId, String itemName,
-                                      Integer trackerId, Integer projectId, String targetState) {
+                                      Integer trackerId, String trackerType, Integer projectId, String targetState) {
         ItemStateRecord record = new ItemStateRecord();
         record.setItemId(itemId);
         record.setItemName(itemName);
         record.setTrackerId(trackerId);
+        record.setTrackerType(trackerType);
         record.setProjectId(projectId);
         record.setTargetState(targetState);
         record.setEnterStateTime(LocalDateTime.now());
         record.setLastNotifyTime(LocalDateTime.now());
 
         itemStateRecordMapper.insert(record);
-        log.debug("保存状态记录: itemId={}", itemId);
+        log.debug("保存状态记录: itemId={}, trackerType={}", itemId, trackerType);
     }
 
     /**

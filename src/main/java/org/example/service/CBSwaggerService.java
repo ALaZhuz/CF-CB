@@ -136,6 +136,17 @@ public interface CBSwaggerService {
     ItemInfoResponse getItemInfo(Integer itemId);
 
     /**
+     * 获取单个条目的基本信息（不调用 tracker API）
+     *
+     * 用于定时通知，避免 429 速率限制。
+     * trackerType 和 projectId 不从 API 获取，需要从外部传入或数据库读取。
+     *
+     * @param itemId 条目ID
+     * @return 条目基本信息，不存在返回null
+     */
+    ItemInfoResponse getItemInfoBasic(Integer itemId);
+
+    /**
      * 获取Codebeamer所有用户列表
      *
      * 用于userid缓存初始化，分页获取所有用户。
