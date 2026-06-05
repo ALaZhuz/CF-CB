@@ -98,11 +98,12 @@ public class ReviewNotificationServiceImpl {
 
         sendEightClockBuckets(nearExpiredByRecipient, "以下评审单即将截止，请您尽快处理！", "near_expired_last_sent", today, now, false, false);
         // 春风组织架构接口不可用
-//        sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true, today.getDayOfWeek() == java.time.DayOfWeek.MONDAY);
+        sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true, today.getDayOfWeek() == java.time.DayOfWeek.MONDAY);
 
     }
 
     public void runThirtyMinuteTasks() {
+        log.info("查询评审超期轮询任务开启");
         List<ReviewRecord> records = repository.findOpenRecords();
         LocalDate today = LocalDate.now();
         // 超期记录的分组映射：收件人 -> (超期天数 -> 评审记录列表)
@@ -177,7 +178,7 @@ public class ReviewNotificationServiceImpl {
      * 同步sqlite，只保存OPEN评审
      */
     public void syncLifecycle() {
-        log.info("30分钟轮询任务开启！");
+        log.info("查询评审新建/关闭/取消任务开启！");
         // 1. 获取所有评审项
         List<ReviewItem> reviews = cbSwaggerService.fetchAllReviews();
         // 2. 评审状态分组映射：状态 -> (收件人 -> 通知列表)
@@ -596,7 +597,7 @@ public class ReviewNotificationServiceImpl {
             Long days = entry.getKey();
             String label = "超期 " + days + " 天";
             if (redLabelMode) {
-                label = "<font color=\"red\">" + label + "</font>";
+                 label = "<font color=\"red\">" + label + "</font>";
             }
             sb.append("\n### ").append(label).append("\n");
             for (ReviewRecord record : entry.getValue()) {
@@ -655,7 +656,7 @@ public class ReviewNotificationServiceImpl {
                         }
                     }
                 } else {
-                    sb.append("\n评审统计信息：暂无数据\n");
+                    sb.append("  - ").append("\n评审统计信息：暂无数据\n");
                 }
             } catch (Exception e) {
                 log.error("获取评审统计信息失败，reviewId={}", item.reviewId, e);
@@ -675,7 +676,7 @@ public class ReviewNotificationServiceImpl {
             Long days = entry.getKey();
             String label = days == null || days == 0 ? "今天截止" : "还有" + days + "天截止";
             if (redTodayMode && (days == null || days == 0)) {
-                label = "<font color=\"red\">" + label + "</font>";
+                 label = "<font color=\"red\">" + label + "</font>";
             }
             sb.append("\n### ").append(label).append("\n");
             for (ReviewRecord record : entry.getValue()) {

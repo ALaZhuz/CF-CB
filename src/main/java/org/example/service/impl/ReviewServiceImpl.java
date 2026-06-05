@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.example.config.DingProperties;
 import org.example.model.dto.response.OrganizationManagerResponse;
@@ -24,6 +25,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReviewServiceImpl implements ReviewService {
 
     private final RestTemplate restTemplate;
@@ -142,13 +144,17 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     private String post(String url, Object body) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Object> entity = new HttpEntity<>(body, headers);
-        @SuppressWarnings("unchecked")
-        Class<String> responseType = (Class<String>) (Class<?>) String.class;
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, responseType);
-        return response.getBody() == null ? "" : response.getBody();
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Object> entity = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.POST, entity, String.class);
+            return response.getBody() == null ? "" : response.getBody();
+        } catch (Exception e) {
+            log.warn("post 请求失败, url: {}, 原因: {}", url, e.getMessage());
+            return ""; // 网络不通时返回空字符串
+        }
     }
 
     private String null2String(Object value) {

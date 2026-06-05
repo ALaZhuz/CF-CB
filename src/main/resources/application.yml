@@ -1,6 +1,9 @@
 spring:
   config:
-    import: classpath:workflow-config.yml
+    import:
+      classpath:
+        - optional:classpath:workflow-config.yml   # 开发
+        - optional:file:./workflow-config.yml # 外置
 
 mybatis:
   type-handlers-package: org.example.db.config
@@ -9,17 +12,19 @@ mybatis:
 
 codebeamer:
   base-url-prefix: https://cb-trial.hirain.com
-#  username: yangyang.zhang
+  #  username: yangyang.zhang
   username: 271824611524632704
   password: yangyang.zhang
-#  base-url-prefix: https://cb-pmt.hirain.com:8443
-#  username: zhangjiamin.zhong
-#  password: zhangjiamin.zhong
+  #  base-url-prefix: https://cb-pmt.hirain.com:8443
+  #  username: zhangjiamin.zhong
+  #  password: zhangjiamin.zhong
 
   #  春风测试环境
 #  base-url-prefix: http://192.168.101.174:8080
 #  username: 271824611524632704
 #  password: cbroot
+#  username: CFDL25045
+#  password: CFDL25045
 
 
 dingtalk:
@@ -42,9 +47,10 @@ dingtalk:
   # 超期*天后每周一提醒
   overdue-weekly: 8
   # 每天定时任务提醒，默认8点
-  notify-cron: "0 55 19 * * ?"
+  notify-cron: "0 45 17 * * ?"
   # 轮询任务，默认30分钟
-  fixed-delay: 1800000
+#  fixed-delay: 1800000
+  fixed-delay: 600000
 
 server:
   port: 8081
