@@ -57,7 +57,7 @@ public class DingUserCacheService {
      *
      * 每小时执行一次，重新验证所有用户的钉钉存在性。
      */
-    @Scheduled(fixedRate = 3600000) // 1小时 = 3600000毫秒
+    @Scheduled(fixedRate = 3600000, initialDelay = 3600000) // 启动后1小时才首次执行，避免与@PostConstruct重复
     public void scheduledRefresh() {
         log.info("开始定期刷新钉钉userid缓存...");
         refreshCache();
