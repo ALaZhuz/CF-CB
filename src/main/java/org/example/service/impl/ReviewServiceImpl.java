@@ -152,7 +152,7 @@ public class ReviewServiceImpl implements ReviewService {
                     url, HttpMethod.POST, entity, String.class);
             return response.getBody() == null ? "" : response.getBody();
         } catch (Exception e) {
-            log.warn("post 请求失败, url: {}, 原因: {}", url, e.getMessage());
+//            log.warn("post 请求失败, url: {}, 原因: {}", url, e.getMessage());
             return ""; // 网络不通时返回空字符串
         }
     }

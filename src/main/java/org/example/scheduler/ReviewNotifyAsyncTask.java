@@ -15,14 +15,14 @@ public class ReviewNotifyAsyncTask {
 
     private final ReviewNotificationServiceImpl reviewNotificationService;
 
-//    @Async
+    @Async
     public void
     runThirtyMinuteTasks() {
 //        log.info("=== 进入 runThirtyMinuteTasks，线程：{}", Thread.currentThread().getName());
         reviewNotificationService.syncLifecycle();
         reviewNotificationService.runThirtyMinuteTasks();
     }
-//    @Async
+    @Async
     public void runEightOClockTasks() {
         reviewNotificationService.runEightOClockTasks();
     }

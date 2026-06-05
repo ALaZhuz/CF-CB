@@ -55,7 +55,7 @@ dingtalk:
   # 超期*天后每周一提醒
   overdue-weekly: 8
   # 每天定时任务提醒，默认8点
-  notify-cron: "0 45 17 * * ?"
+  notify-cron: "0 25 16 * * ?"
   # 轮询任务，默认30分钟
 #  fixed-delay: 1800000
   fixed-delay: 600000
