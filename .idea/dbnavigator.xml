@@ -35,6 +35,12 @@
       <assistant-state connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
         <tools />
       </assistant-state>
+      <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="PUBLIC" default-profile-name="" selected-chat-id="" availability="AVAILABLE" acknowledgement="NONE" selected="true">
+        <tools />
+      </assistant-state>
+      <assistant-state connection-id="0ca97f50-828f-447b-82d8-e728ab034745" assistant-type="SELECT_AI" default-profile-name="" selected-chat-id="" availability="UNAVAILABLE" acknowledgement="NONE">
+        <tools />
+      </assistant-state>
     </assistants>
     <selection-state>
       <model-selection />
@@ -55,7 +61,9 @@
     <last-used-providers />
   </component>
   <component name="DBNavigator.Project.DatabaseFileManager">
-    <open-files />
+    <open-files>
+      <object connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" object-ref="schemas/main/tables/item_state_record" />
+    </open-files>
   </component>
   <component name="DBNavigator.Project.DatabasePrerequisiteManager">
     <prerequisites />

@@ -5,8 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.db.entity.OrgCache;
 import org.example.db.mapper.OrgCacheMapper;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.dto.response.OrganizationManagerResponse;
 import org.example.service.CBSwaggerService;
-import org.example.service.DingService;
+import org.example.service.ReviewService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +31,7 @@ import java.util.List;
 public class OrgCacheService {
 
     private final CBSwaggerService cbSwaggerService;
-    private final DingService dingService;
+    private final ReviewService reviewService;
     private final OrgCacheMapper orgCacheMapper;
 
     /**
@@ -88,20 +89,21 @@ public class OrgCacheService {
 
                 try {
                     // 调用钉钉API获取科长/部长
-                    String managerInfo = dingService.queryOrganizationManager(userid);
+                    OrganizationManagerResponse managerInfo = reviewService.queryOrganizationManager(userid);
 
                     OrgCache cache = new OrgCache();
                     cache.setUserid(userid);
                     cache.setLastSyncTime(LocalDateTime.now());
 
-                    // 解析科长/部长信息（格式：科长userid,部长userid）
-                    if (managerInfo != null && !managerInfo.isEmpty()) {
-                        String[] parts = managerInfo.split(",");
-                        if (parts.length >= 1 && !parts[0].isEmpty()) {
-                            cache.setManagerUserid(parts[0]);
+                    // 解析科长/部长信息
+                    if (managerInfo != null) {
+                        // 科长：取第一个
+                        if (managerInfo.getSectionManager() != null && !managerInfo.getSectionManager().isEmpty()) {
+                            cache.setManagerUserid(managerInfo.getSectionManager().get(0));
                         }
-                        if (parts.length >= 2 && !parts[1].isEmpty()) {
-                            cache.setDirectorUserid(parts[1]);
+                        // 部长：取第一个
+                        if (managerInfo.getDepartmentManager() != null && !managerInfo.getDepartmentManager().isEmpty()) {
+                            cache.setDirectorUserid(managerInfo.getDepartmentManager().get(0));
                         }
                     }
 
@@ -143,10 +145,9 @@ public class OrgCacheService {
         // 缓存未命中，实时查询钉钉API
         log.debug("缓存未命中，实时查询科长: userid={}", userid);
         try {
-            String managerInfo = dingService.queryOrganizationManager(userid);
-            if (managerInfo != null && !managerInfo.isEmpty()) {
-                String[] parts = managerInfo.split(",");
-                String managerUserid = parts.length >= 1 && !parts[0].isEmpty() ? parts[0] : null;
+            OrganizationManagerResponse managerInfo = reviewService.queryOrganizationManager(userid);
+            if (managerInfo != null && managerInfo.getSectionManager() != null && !managerInfo.getSectionManager().isEmpty()) {
+                String managerUserid = managerInfo.getSectionManager().get(0);
 
                 // 补缓存
                 if (cache == null) {
@@ -188,10 +189,9 @@ public class OrgCacheService {
         // 缓存未命中，实时查询钉钉API
         log.debug("缓存未命中，实时查询部长: userid={}", userid);
         try {
-            String managerInfo = dingService.queryOrganizationManager(userid);
-            if (managerInfo != null && !managerInfo.isEmpty()) {
-                String[] parts = managerInfo.split(",");
-                String directorUserid = parts.length >= 2 && !parts[1].isEmpty() ? parts[1] : null;
+            OrganizationManagerResponse managerInfo = reviewService.queryOrganizationManager(userid);
+            if (managerInfo != null && managerInfo.getDepartmentManager() != null && !managerInfo.getDepartmentManager().isEmpty()) {
+                String directorUserid = managerInfo.getDepartmentManager().get(0);
 
                 // 补缓存
                 if (cache == null) {

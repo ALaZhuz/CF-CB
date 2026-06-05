@@ -100,6 +100,7 @@ public class SQLiteConfig {
                     item_id INTEGER NOT NULL UNIQUE,
                     item_name TEXT,
                     tracker_id INTEGER,
+                    tracker_type TEXT,
                     project_id INTEGER,
                     target_state TEXT NOT NULL,
                     enter_state_time DATETIME NOT NULL,
@@ -107,6 +108,13 @@ public class SQLiteConfig {
                 )
                 """;
             stmt.execute(createTable1);
+
+            // 兼容旧数据库：添加 tracker_type 列（如果不存在）
+            try {
+                stmt.execute("ALTER TABLE item_state_record ADD COLUMN tracker_type TEXT");
+            } catch (SQLException e) {
+                // 列已存在，忽略错误
+            }
 
             // 创建表2: notify_log（通知发送日志表）
             // 用于记录每次钉钉通知发送的结果，便于追踪和排查问题

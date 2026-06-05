@@ -597,38 +597,14 @@ public class WorkflowConfigService {
     /**
      * 获取通知时间
      *
-     * 项目级defaultNotifyTime > 全局级defaultNotifyTime > 系统默认
-     * 注意：已取消tracker级配置，统一使用project级配置
+     * 直接读取根级 defaultNotifyTime 配置
      *
-     * @param trackerId tracker ID (参数保留但不使用，保持接口兼容)
-     * @param projectId 项目ID
      * @return 通知时间（如 "08:00"），未配置返回默认值
      */
-    public String getNotifyTime(Integer trackerId, Integer projectId) {
-        // 1. 查找项目级 defaultNotifyTime
-        if (projectId != null && workflowProperties.getClassifyConfig() != null
-                && workflowProperties.getClassifyConfig().getProjects() != null) {
-            WorkflowProperties.ProjectClassifyConfig projectClassifyConfig = workflowProperties.getClassifyConfig()
-                    .getProjects().get(String.valueOf(projectId));
-            if (projectClassifyConfig != null && projectClassifyConfig.getDefaultNotifyTime() != null) {
-                log.debug("使用项目级default-notify-time: projectId={}, time={}",
-                        projectId, projectClassifyConfig.getDefaultNotifyTime());
-                return projectClassifyConfig.getDefaultNotifyTime();
-            }
+    public String getNotifyTime() {
+        if (workflowProperties.getDefaultNotifyTime() != null && !workflowProperties.getDefaultNotifyTime().isEmpty()) {
+            return workflowProperties.getDefaultNotifyTime();
         }
-
-        // 2. 使用全局默认通知时间
-        if (workflowProperties.getClassifyConfig() != null) {
-            ClassifyConfig globalClassifyConfig = workflowProperties.getClassifyConfig().getGlobal();
-            if (globalClassifyConfig != null && globalClassifyConfig.getDefaultNotifyTime() != null) {
-                log.debug("使用全局级default-notify-time: time={}",
-                        globalClassifyConfig.getDefaultNotifyTime());
-                return globalClassifyConfig.getDefaultNotifyTime();
-            }
-        }
-
-        // 3. 系统默认值
-        log.debug("使用系统默认通知时间: 08:00");
         return "08:00";
     }
 
@@ -651,18 +627,6 @@ public class WorkflowConfigService {
                 .filter(rule -> rule.getCategory() != null && rule.getCategory().equals(classifyValue))
                 .findFirst();
 
-        if (matchedRule.isPresent()) {
-            return matchedRule.get();
-        }
-
-        // 未匹配，尝试使用 defaultCategory
-        if (classifyConfig.getDefaultCategory() != null) {
-            return classifyConfig.getClassifyRules().stream()
-                    .filter(rule -> rule.getCategory() != null && rule.getCategory().equals(classifyConfig.getDefaultCategory()))
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        return null;
+        return matchedRule.orElse(null);
     }
 }

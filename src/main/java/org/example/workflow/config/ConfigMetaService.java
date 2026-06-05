@@ -1,14 +1,12 @@
 package org.example.workflow.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.db.entity.ConfigMeta;
 import org.example.db.mapper.ConfigMetaMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
-import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
@@ -20,7 +18,6 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Map;
 
 /**
@@ -40,35 +37,46 @@ public class ConfigMetaService {
     private final ConfigMetaMapper configMetaMapper;
     private final WorkflowProperties workflowProperties;
 
+    // 使用 Jackson ObjectMapper 进行配置转换（支持 kebab-case 到 camelCase）
+    private final ObjectMapper configObjectMapper = new ObjectMapper()
+            .setPropertyNamingStrategy(PropertyNamingStrategies.KEBAB_CASE);
+
     @Value("${spring.config.import:classpath:workflow-config.yml}")
     private String configImport;
 
     /**
-     * 服务启动时同步配置到数据库
+     * 服务启动时同步配置到数据库并更新内存配置
      *
-     * 如果数据库中没有配置，从 YAML 文件读取并存入数据库。
+     * 每次启动都强制从 YAML 文件读取配置并覆盖数据库，
+     * 同时更新 WorkflowProperties 内存配置，确保配置与 YAML 文件保持一致。
      */
     @PostConstruct
     public void syncConfigToDatabase() {
         try {
-            ConfigMeta configMeta = configMetaMapper.select();
-
-            if (configMeta == null || configMeta.getYamlContent() == null) {
-                log.info("数据库中无配置，从 YAML 文件同步...");
-
-                Path yamlPath = getYamlFilePath();
-                if (yamlPath != null && Files.exists(yamlPath)) {
-                    String yamlContent = Files.readString(yamlPath);
-                    LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
-
-                    configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "system");
-                    log.info("配置已同步到数据库");
-                }
-            } else {
-                log.info("数据库已有配置，跳过同步");
+            Path yamlPath = getYamlFilePath();
+            if (yamlPath == null || !Files.exists(yamlPath)) {
+                log.warn("YAML配置文件不存在，跳过同步");
+                return;
             }
+
+            log.info("从 YAML 文件同步配置: {}", yamlPath);
+
+            String yamlContent = Files.readString(yamlPath);
+            LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
+
+            // 1. 更新数据库
+            configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "system-startup");
+            log.info("配置已同步到数据库");
+
+            // 2. 更新内存中的 WorkflowProperties
+            Yaml yaml = new Yaml();
+            Map<String, Object> configMap = yaml.load(new FileInputStream(yamlPath.toFile()));
+            bindConfigToProperties(configMap);
+
+            log.info("启动配置同步完成");
+
         } catch (Exception e) {
-            log.warn("同步配置到数据库失败: {}", e.getMessage());
+            log.error("同步配置失败: {}", e.getMessage(), e);
         }
     }
 
@@ -174,54 +182,81 @@ public class ConfigMetaService {
     }
 
     /**
-     * 使用 Spring Binder 将配置绑定到 WorkflowProperties
+     * 使用 Jackson ObjectMapper 将配置绑定到 WorkflowProperties
+     *
+     * Jackson 的 PropertyNamingStrategies.KEBAB_CASE 支持
+     * YAML 中的 kebab-case（如 classify-field）到 Java camelCase（如 classifyField）的转换
      *
      * @param configMap YAML 解析后的配置 Map
      */
     private void bindConfigToProperties(Map<String, Object> configMap) {
         try {
-            // 创建配置源
-            MapConfigurationPropertySource source = new MapConfigurationPropertySource(configMap);
-            Binder binder = new Binder(source);
-
-            // 直接绑定到 WorkflowProperties 的各个字段
-            // Binder 会自动更新对象内部的值
-
             // 绑定 classify-config
-            binder.bind("classify-config",
-                Bindable.of(WorkflowProperties.ClassifyConfigConfig.class)
-                    .withExistingValue(workflowProperties.getClassifyConfig()));
-            log.debug("classify-config 已更新");
+            if (configMap.containsKey("classify-config")) {
+                Object classifyConfigMap = configMap.get("classify-config");
+                WorkflowProperties.ClassifyConfigConfig classifyConfig =
+                    configObjectMapper.convertValue(classifyConfigMap,
+                        WorkflowProperties.ClassifyConfigConfig.class);
+                workflowProperties.setClassifyConfig(classifyConfig);
+                log.debug("classify-config 已更新");
+            }
 
             // 绑定 type-mappings
-            binder.bind("type-mappings",
-                Bindable.of(WorkflowProperties.TypeMappingsConfig.class)
-                    .withExistingValue(workflowProperties.getTypeMappings()));
-            log.debug("type-mappings 已更新");
+            if (configMap.containsKey("type-mappings")) {
+                Object typeMappingsMap = configMap.get("type-mappings");
+                WorkflowProperties.TypeMappingsConfig typeMappings =
+                    configObjectMapper.convertValue(typeMappingsMap,
+                        WorkflowProperties.TypeMappingsConfig.class);
+                workflowProperties.setTypeMappings(typeMappings);
+                log.debug("type-mappings 已更新");
+            }
 
             // 绑定 extra-fields
-            binder.bind("extra-fields",
-                Bindable.of(WorkflowProperties.ExtraFieldsConfig.class)
-                    .withExistingValue(workflowProperties.getExtraFields()));
-            log.debug("extra-fields 已更新");
+            if (configMap.containsKey("extra-fields")) {
+                Object extraFieldsMap = configMap.get("extra-fields");
+                WorkflowProperties.ExtraFieldsConfig extraFields =
+                    configObjectMapper.convertValue(extraFieldsMap,
+                        WorkflowProperties.ExtraFieldsConfig.class);
+                workflowProperties.setExtraFields(extraFields);
+                log.debug("extra-fields 已更新");
+            }
+
+            // 绑定根级别字段
+            if (configMap.containsKey("default-notify-time")) {
+                workflowProperties.setDefaultNotifyTime((String) configMap.get("default-notify-time"));
+                log.debug("default-notify-time 已更新");
+            }
 
             // 绑定 dingtalk
-            binder.bind("dingtalk",
-                Bindable.of(WorkflowProperties.DingtalkConfig.class)
-                    .withExistingValue(workflowProperties.getDingtalk()));
-            log.debug("dingtalk 已更新");
+            if (configMap.containsKey("dingtalk")) {
+                Object dingtalkMap = configMap.get("dingtalk");
+                WorkflowProperties.DingtalkConfig dingtalk =
+                    configObjectMapper.convertValue(dingtalkMap,
+                        WorkflowProperties.DingtalkConfig.class);
+                workflowProperties.setDingtalk(dingtalk);
+                log.debug("dingtalk 已更新");
+            }
 
             // 绑定 global-workflows（列表）
-            binder.bind("global-workflows",
-                Bindable.ofInstance(workflowProperties.getGlobalWorkflows()));
-            log.debug("global-workflows 已更新");
+            if (configMap.containsKey("global-workflows")) {
+                Object globalWorkflowsList = configMap.get("global-workflows");
+                // 对于列表，需要手动处理
+                workflowProperties.setGlobalWorkflows(
+                    configObjectMapper.convertValue(globalWorkflowsList,
+                        configObjectMapper.getTypeFactory().constructCollectionType(
+                            java.util.ArrayList.class, WorkflowTemplate.class)));
+                log.debug("global-workflows 已更新");
+            }
 
-            // 绑定 projects（列表，支持新增/删除）
-            // 先清空再绑定，确保新增/删除生效
-            workflowProperties.getProjects().clear();
-            binder.bind("projects",
-                Bindable.ofInstance(workflowProperties.getProjects()));
-            log.info("projects 配置已更新（支持新增/删除项目热更新）");
+            // 绑定 projects（列表）
+            if (configMap.containsKey("projects")) {
+                Object projectsList = configMap.get("projects");
+                workflowProperties.setProjects(
+                    configObjectMapper.convertValue(projectsList,
+                        configObjectMapper.getTypeFactory().constructCollectionType(
+                            java.util.ArrayList.class, ProjectConfig.class)));
+                log.info("projects 配置已更新（支持新增/删除项目热更新）");
+            }
 
             log.info("WorkflowProperties 热更新完成");
 

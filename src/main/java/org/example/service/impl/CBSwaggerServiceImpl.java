@@ -459,12 +459,67 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
      * 获取单个条目的完整详情
      *
      * 调用Codebeamer API获取条目的详细信息，包括名称、状态、成员字段等。
+     * 包含 trackerType 和 projectId（通过调用 tracker API 获取）。
      *
      * @param itemId 条目ID
      * @return 条目详情，不存在返回null
      */
     @Override
     public ItemInfoResponse getItemInfo(Integer itemId) {
+        JsonNode body = fetchItemJson(itemId);
+        if (body == null) {
+            return null;
+        }
+
+        // 解析基本信息（复用）
+        ItemInfoResponse itemInfo = parseItemInfoCommon(itemId, body);
+
+        // 获取 tracker 信息（调用 API）
+        Integer trackerId = itemInfo.getTracker().getId();
+        if (trackerId != null && trackerId > 0) {
+            fillTrackerInfo(itemInfo, trackerId);
+        }
+
+        log.info("条目详情解析完成: itemId={}, trackerId={}, trackerName={}, trackerType={}, projectId={}, projectName={}",
+                itemId, trackerId, itemInfo.getTracker().getName(), itemInfo.getTrackerType(),
+                itemInfo.getProject() != null ? itemInfo.getProject().getId() : null,
+                itemInfo.getProject() != null ? itemInfo.getProject().getName() : null);
+
+        return itemInfo;
+    }
+
+    /**
+     * 获取单个条目的基本信息（不调用 tracker API）
+     *
+     * 用于定时通知，避免 429 速率限制。
+     * trackerType 和 projectId 不从 API 获取，需要从外部传入或数据库读取。
+     *
+     * @param itemId 条目ID
+     * @return 条目基本信息，不存在返回null
+     */
+    @Override
+    public ItemInfoResponse getItemInfoBasic(Integer itemId) {
+        JsonNode body = fetchItemJson(itemId);
+        if (body == null) {
+            return null;
+        }
+
+        // 解析基本信息（复用）
+        ItemInfoResponse itemInfo = parseItemInfoCommon(itemId, body);
+
+        // 不调用 tracker API，trackerType 和 projectId 保持为 null
+        log.debug("条目基本信息解析完成: itemId={}, trackerId={}", itemId, itemInfo.getTracker().getId());
+
+        return itemInfo;
+    }
+
+    /**
+     * 获取条目 JSON 数据
+     *
+     * @param itemId 条目ID
+     * @return JSON 数据，不存在返回null
+     */
+    private JsonNode fetchItemJson(Integer itemId) {
         if (itemId == null) {
             return null;
         }
@@ -484,6 +539,19 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             return null;
         }
 
+        return body;
+    }
+
+    /**
+     * 解析条目基本信息（复用方法）
+     *
+     * 解析条目的通用字段，不包括 trackerType 和 projectId。
+     *
+     * @param itemId 条目ID
+     * @param body JSON 数据
+     * @return 条目信息对象
+     */
+    private ItemInfoResponse parseItemInfoCommon(Integer itemId, JsonNode body) {
         ItemInfoResponse itemInfo = new ItemInfoResponse();
 
         // 解析基本字段
@@ -495,52 +563,15 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         itemInfo.setStatus(statusNode.path("name").asText(null));
 
         // 解析tracker信息
-        // Codebeamer API返回：tracker.id, tracker.name
         JsonNode trackerNode = body.path("tracker");
         ItemInfoResponse.TrackerInfo trackerInfo = new ItemInfoResponse.TrackerInfo();
         trackerInfo.setId(trackerNode.path("id").asInt());
         trackerInfo.setName(trackerNode.path("name").asText(null));
-
+        trackerInfo.setTypeName(null);  // 不在这里设置，由 fillTrackerInfo 设置
         itemInfo.setTracker(trackerInfo);
 
-        // 解析项目信息和tracker类型
-        // 需要通过/v3/trackers/{trackerId}接口获取project和type
-        Integer trackerId = trackerInfo.getId();
-        Integer projectId = null;
-        String projectName = null;
-        String typeName = null;
-
-        if (trackerId != null && trackerId > 0) {
-            try {
-                CBTrackerInfoResponse trackerInfoResp = getProjectInfo(trackerId);
-                if (trackerInfoResp != null) {
-                    // 获取项目信息
-                    if (trackerInfoResp.getProject() != null) {
-                        projectId = trackerInfoResp.getProject().getId();
-                        projectName = trackerInfoResp.getProject().getName();
-                    }
-                    // 获取tracker类型
-                    if (trackerInfoResp.getType() != null) {
-                        typeName = trackerInfoResp.getType().getName();
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("获取tracker项目信息失败: trackerId={}, error={}", trackerId, e.getMessage());
-            }
-        }
-
-        // 设置tracker类型
-        trackerInfo.setTypeName(typeName);
-        itemInfo.setTrackerType(typeName);
-
-        ItemInfoResponse.ProjectInfo projectInfo = new ItemInfoResponse.ProjectInfo();
-        projectInfo.setId(projectId);
-        projectInfo.setName(projectName);
-        itemInfo.setProject(projectInfo);
-
-        // 日志记录解析结果
-        log.info("条目详情解析完成: itemId={}, trackerId={}, trackerName={}, trackerType={}, projectId={}, projectName={}",
-                itemId, trackerId, trackerInfo.getName(), typeName, projectId, projectName);
+        // project 信息不在这里设置
+        itemInfo.setProject(null);
 
         // 解析assignedTo成员列表
         JsonNode assignedToNode = body.path("assignedTo");
@@ -573,14 +604,13 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setModifiedBy(parseMember(modifiedByNode));
         }
 
-        // 解析priority（单个ChoiceOption）
+        // 解析priority
         JsonNode priorityNode = body.path("priority");
         if (!priorityNode.isMissingNode()) {
-            ItemInfoResponse.ChoiceOption priority = parseChoiceOption(priorityNode);
-            itemInfo.setPriority(priority);
+            itemInfo.setPriority(parseChoiceOption(priorityNode));
         }
 
-        // 解析categories（列表）
+        // 解析categories
         JsonNode categoriesNode = body.path("categories");
         if (categoriesNode.isArray()) {
             List<ItemInfoResponse.ChoiceOption> categories = new ArrayList<>();
@@ -590,7 +620,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setCategories(categories);
         }
 
-        // 解析severities（列表）
+        // 解析severities
         JsonNode severitiesNode = body.path("severities");
         if (severitiesNode.isArray()) {
             List<ItemInfoResponse.ChoiceOption> severities = new ArrayList<>();
@@ -600,7 +630,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setSeverities(severities);
         }
 
-        // 解析teams（列表）
+        // 解析teams
         JsonNode teamsNode = body.path("teams");
         if (teamsNode.isArray()) {
             List<ItemInfoResponse.ChoiceOption> teams = new ArrayList<>();
@@ -610,7 +640,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setTeams(teams);
         }
 
-        // 解析versions（列表）
+        // 解析versions
         JsonNode versionsNode = body.path("versions");
         if (versionsNode.isArray()) {
             List<ItemInfoResponse.ChoiceOption> versions = new ArrayList<>();
@@ -630,7 +660,6 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 customField.setLabel(field.path("label").asText(null));
                 customField.setType(field.path("type").asText(null));
 
-                // 解析 values 字段（成员类型）
                 JsonNode valuesNode = field.path("values");
                 if (valuesNode.isArray()) {
                     List<ItemInfoResponse.MemberInfo> values = new ArrayList<>();
@@ -643,7 +672,6 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                     customField.setValues(values);
                 }
 
-                // 解析 value 字段（文本、日期、选择等类型）
                 JsonNode valueNode = field.path("value");
                 if (!valueNode.isMissingNode() && !valueNode.isNull()) {
                     customField.setValue(valueNode.asText(null));
@@ -659,6 +687,43 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         itemInfo.setItemLink(itemLink);
 
         return itemInfo;
+    }
+
+    /**
+     * 填充 tracker 信息（调用 tracker API）
+     *
+     * @param itemInfo 条目信息对象
+     * @param trackerId tracker ID
+     */
+    private void fillTrackerInfo(ItemInfoResponse itemInfo, Integer trackerId) {
+        Integer projectId = null;
+        String projectName = null;
+        String typeName = null;
+
+        try {
+            CBTrackerInfoResponse trackerInfoResp = getProjectInfo(trackerId);
+            if (trackerInfoResp != null) {
+                if (trackerInfoResp.getProject() != null) {
+                    projectId = trackerInfoResp.getProject().getId();
+                    projectName = trackerInfoResp.getProject().getName();
+                }
+                if (trackerInfoResp.getType() != null) {
+                    typeName = trackerInfoResp.getType().getName();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取tracker项目信息失败: trackerId={}, error={}", trackerId, e.getMessage());
+        }
+
+        // 设置tracker类型
+        itemInfo.getTracker().setTypeName(typeName);
+        itemInfo.setTrackerType(typeName);
+
+        // 设置项目信息
+        ItemInfoResponse.ProjectInfo projectInfo = new ItemInfoResponse.ProjectInfo();
+        projectInfo.setId(projectId);
+        projectInfo.setName(projectName);
+        itemInfo.setProject(projectInfo);
     }
 
     /**

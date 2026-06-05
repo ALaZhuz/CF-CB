@@ -21,10 +21,4 @@ public class ClassifyConfig {
 
     /** 分类规则列表，按分类值匹配不同的通知频率 */
     private List<ClassifyRule> classifyRules = new ArrayList<>();
-
-    /** 默认分类名称（当 classify-field 值不匹配任何规则时使用） */
-    private String defaultCategory;
-
-    /** 默认通知时间（如 "08:00"） */
-    private String defaultNotifyTime;
 }

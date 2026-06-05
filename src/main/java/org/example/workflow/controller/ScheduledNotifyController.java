@@ -99,14 +99,21 @@ public class ScheduledNotifyController {
     public Map<String, Object> reloadConfig() {
         log.info("收到配置重载请求");
 
-        // 更新加载时间（实际配置重载需要自定义实现）
-        configMetaService.updateLastLoadedTime(LocalDateTime.now());
+        try {
+            // 真正执行配置重载
+            configMetaService.reloadYamlConfig();
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "配置加载时间已更新（注：Spring @ConfigurationProperties 不支持热更新，需重启生效）");
-
-        return response;
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "配置已重新加载，yaml_content已更新");
+            return response;
+        } catch (Exception e) {
+            log.error("配置重载失败: {}", e.getMessage(), e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "配置重载失败: " + e.getMessage());
+            return response;
+        }
     }
 
     /**

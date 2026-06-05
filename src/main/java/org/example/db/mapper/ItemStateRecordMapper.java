@@ -26,8 +26,8 @@ public interface ItemStateRecordMapper {
      *
      * @param record 条目状态记录实体
      */
-    @Insert("INSERT OR REPLACE INTO item_state_record (item_id, item_name, tracker_id, project_id, target_state, enter_state_time, last_notify_time) " +
-            "VALUES (#{itemId}, #{itemName}, #{trackerId}, #{projectId}, #{targetState}, #{enterStateTime}, #{lastNotifyTime})")
+    @Insert("INSERT OR REPLACE INTO item_state_record (item_id, item_name, tracker_id, tracker_type, project_id, target_state, enter_state_time, last_notify_time) " +
+            "VALUES (#{itemId}, #{itemName}, #{trackerId}, #{trackerType}, #{projectId}, #{targetState}, #{enterStateTime}, #{lastNotifyTime})")
     void insert(ItemStateRecord record);
 
     /**
