@@ -2,11 +2,13 @@ package org.example.workflow.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.model.dto.response.CBTrackerInfoResponse;
 import org.example.model.dto.response.ItemInfoResponse;
 import org.example.service.CBSwaggerService;
 import org.example.workflow.cache.DingUserCacheService;
 import org.example.workflow.config.WorkflowConfigService;
 import org.example.workflow.config.WorkflowTemplate;
+import org.example.workflow.dto.NotifyFieldResponse;
 import org.example.workflow.dto.ValidateRequest;
 import org.example.workflow.dto.ValidateResponse;
 import org.springframework.stereotype.Service;
@@ -37,10 +39,86 @@ public class WorkflowValidateService {
     private final DingUserCacheService dingUserCacheService;
 
     /**
+     * 查询目标状态的notifyField
+     *
+     * 供Groovy脚本在beforeEvent阶段调用，获取需要校验的通知字段名称。
+     * 此方法不执行校验，只返回配置信息。
+     *
+     * @param trackerId tracker ID
+     * @param targetState 目标状态名称
+     * @return notifyField响应，包含是否需要通知和字段名称
+     */
+    public NotifyFieldResponse getNotifyField(Integer trackerId, String targetState) {
+        NotifyFieldResponse response = new NotifyFieldResponse();
+        response.setNeedsNotify(false);
+
+        try {
+            // 1. 获取tracker信息（补充trackerType和projectId）
+            String trackerType = null;
+            Integer projectId = null;
+
+            CBTrackerInfoResponse trackerInfo = cbSwaggerService.getProjectInfo(trackerId);
+            if (trackerInfo != null) {
+                if (trackerInfo.getType() != null) {
+                    trackerType = trackerInfo.getType().getName();
+                }
+                if (trackerInfo.getProject() != null) {
+                    projectId = trackerInfo.getProject().getId();
+                }
+            }
+
+            log.debug("查询notifyField: trackerId={}, trackerType={}, projectId={}, targetState={}",
+                    trackerId, trackerType, projectId, targetState);
+
+            // 2. 查找工作流配置
+            WorkflowTemplate workflow = workflowConfigService.getWorkflowForTracker(
+                    trackerId, trackerType, projectId);
+
+            if (workflow == null) {
+                response.setErrorMessage("未找到tracker配置: trackerId=" + trackerId);
+                return response;
+            }
+
+            response.setWorkflowName(workflow.getName());
+
+            // 3. 判断目标状态是否已声明
+            if (!workflowConfigService.isStateDeclared(workflow, targetState)) {
+                response.setErrorMessage("目标状态[" + targetState + "]未在工作流模板[" +
+                        workflow.getName() + "]中配置");
+                return response;
+            }
+
+            // 4. 获取状态配置
+            WorkflowTemplate.StateConfig stateConfig = workflowConfigService.getStateConfig(workflow, targetState);
+
+            // 5. 判断是否需要通知
+            if (!workflowConfigService.shouldNotify(stateConfig)) {
+                // 不需要通知，返回needsNotify=false
+                response.setNeedsNotify(false);
+                response.setNotifyField(null);
+                return response;
+            }
+
+            // 6. 返回notifyField
+            response.setNeedsNotify(true);
+            response.setNotifyField(stateConfig.getNotifyField());
+
+            log.info("查询notifyField成功: trackerId={}, targetState={}, needsNotify=true, notifyField={}",
+                    trackerId, targetState, response.getNotifyField());
+
+        } catch (Exception e) {
+            log.error("查询notifyField异常: trackerId={}, error={}", trackerId, e.getMessage(), e);
+            response.setErrorMessage("查询异常: " + e.getMessage());
+        }
+
+        return response;
+    }
+
+    /**
      * 执行beforeEvent校验
      *
      * 校验流程：
-     * 1. 获取条目详情（tracker信息）
+     * 1. 获取条目详情（tracker信息）- 新建时使用 request 中的 tracker 信息
      * 2. 查找对应的工作流配置
      * 3. 判断目标状态是否需要通知
      * 4. 校验通知字段成员
@@ -56,22 +134,55 @@ public class WorkflowValidateService {
         Integer itemId = request.getItemId();
         String targetState = request.getTargetState();
 
-        log.info("开始beforeEvent校验: itemId={}, targetState={}", itemId, targetState);
+        log.info("开始beforeEvent校验: itemId={}, targetState={}, trackerId={}",
+                itemId, targetState, request.getTrackerId());
 
         try {
-            // 1. 获取条目详情: itemId, targetState,trackerId,trackerName,trackerType,projectId
-            ItemInfoResponse itemInfo = cbSwaggerService.getItemInfo(itemId);
-            if (itemInfo == null) {
-                response.setErrorMessage("条目不存在: itemId=" + itemId);
-                return response;
+            Integer trackerId;
+            String trackerType;
+            Integer projectId;
+            ItemInfoResponse itemInfo = null;
+
+            // 1. 获取 tracker 和项目信息
+            // 场景区分：修改条目(itemId!=null) 和 新建条目(itemId==null)
+            if (itemId != null) {
+                // 修改条目：通过 itemId 获取条目详情
+                itemInfo = cbSwaggerService.getItemInfo(itemId);
+                if (itemInfo == null) {
+                    response.setErrorMessage("条目不存在: itemId=" + itemId);
+                    return response;
+                }
+                trackerId = itemInfo.getTracker().getId();
+                trackerType = itemInfo.getTracker().getTypeName();
+                projectId = itemInfo.getProject().getId();
+            } else {
+                // 新建条目：使用 request 中的 tracker 信息
+                trackerId = request.getTrackerId();
+                trackerType = request.getTrackerType();
+                projectId = request.getProjectId();
+
+                // 如果 trackerId 存在但 trackerType/projectId 不存在，调用 API 补充
+                if (trackerId != null) {
+                    if (trackerType == null || projectId == null) {
+                        var trackerInfo = cbSwaggerService.getProjectInfo(trackerId);
+                        if (trackerInfo != null) {
+                            if (trackerType == null && trackerInfo.getType() != null) {
+                                trackerType = trackerInfo.getType().getName();
+                            }
+                            if (projectId == null && trackerInfo.getProject() != null) {
+                                projectId = trackerInfo.getProject().getId();
+                            }
+                        }
+                    }
+                }
+
+                if (trackerId == null) {
+                    response.setErrorMessage("新建条目缺少tracker信息，无法校验");
+                    return response;
+                }
             }
 
-            // 补充tracker和项目信息
-            Integer trackerId = itemInfo.getTracker().getId();
-            String trackerType = itemInfo.getTracker().getTypeName();
-            Integer projectId = itemInfo.getProject().getId();
-
-            log.info("开始beforeEvent校验: trackerId={}, trackerType={}, projectId={}",
+            log.info("校验参数: trackerId={}, trackerType={}, projectId={}",
                     trackerId, trackerType, projectId);
 
             // 2. 查找工作流配置
@@ -104,26 +215,48 @@ public class WorkflowValidateService {
 
             // 6. 校验通知字段是否有成员
             String notifyField = stateConfig.getNotifyField();
-            List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+            response.setNotifyField(notifyField);
 
-            if (members == null || members.isEmpty()) {
+            List<String> userids;
+            List<String> memberNames;
+
+            // 优先使用 request 中的成员信息（Groovy脚本从subject提取的新数据）
+            // 无论是新建还是修改条目，request中的数据都是用户即将保存的新数据
+            if (request.getNotifyUserIds() != null && !request.getNotifyUserIds().isEmpty()) {
+                // 使用 request 中的成员信息
+                userids = request.getNotifyUserIds();
+                memberNames = request.getNotifyMemberNames();
+                log.info("使用request中的成员信息: userIds={}, names={}", userids, memberNames);
+            } else if (itemInfo != null) {
+                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取（仅修改条目）
+                List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+                if (members == null || members.isEmpty()) {
+                    response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                    return response;
+                }
+                userids = members.stream()
+                        .map(ItemInfoResponse.MemberInfo::getUserId)
+                        .filter(id -> id != null && !id.isEmpty())
+                        .collect(Collectors.toList());
+                memberNames = members.stream()
+                        .map(m -> m.getName() != null ? m.getName() : m.getUserId())
+                        .collect(Collectors.toList());
+                log.info("从itemInfo获取成员信息: userIds={}, names={}", userids, memberNames);
+            } else {
+                // 新建条目且request中没有成员信息，校验失败
+                response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                return response;
+            }
+
+            if (userids == null || userids.isEmpty()) {
                 response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
             // 记录通知成员信息
-            List<String> memberNames = members.stream()
-                    .map(m -> m.getName() != null ? m.getName() : m.getUserId())
-                    .collect(Collectors.toList());
-            response.setNotifyField(notifyField);
             response.setNotifyMembers(memberNames);
 
             // 7. 校验userid在钉钉中存在
-            List<String> userids = members.stream()
-                    .map(ItemInfoResponse.MemberInfo::getUserId)
-                    .filter(id -> id != null && !id.isEmpty())
-                    .collect(Collectors.toList());
-
             Set<String> invalidUserIds = dingUserCacheService.findInvalidUserIds(userids);
 
             if (!invalidUserIds.isEmpty()) {

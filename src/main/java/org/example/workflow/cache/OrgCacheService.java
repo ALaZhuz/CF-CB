@@ -15,6 +15,7 @@ import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
 
 /**
  * 组织架构缓存服务类
@@ -51,7 +52,7 @@ public class OrgCacheService {
      *
      * 每小时执行一次，重新同步所有用户的科长/部长关系。
      */
-    @Scheduled(fixedRate = 3600000) // 1小时 = 3600000毫秒
+    @Scheduled(fixedRate = 3600000, initialDelay = 3600000) // 启动后1小时才首次执行，避免与@PostConstruct重复
     public void scheduledRefresh() {
         log.info("开始定期刷新组织架构缓存...");
         syncOrgCache();
@@ -61,7 +62,8 @@ public class OrgCacheService {
     /**
      * 同步组织架构缓存核心逻辑
      *
-     * 获取Codebeamer所有用户并调用钉钉API获取科长/部长关系。
+     * 获取Codebeamer所有用户并并发调用钉钉API获取科长/部长关系。
+     * 使用线程池加速处理，避免串行执行耗时过长。
      */
     private void syncOrgCache() {
         try {
@@ -73,50 +75,111 @@ public class OrgCacheService {
                 return;
             }
 
+            log.info("开始同步组织架构缓存, 用户总数={}", users.size());
+
+            // === 步骤1: 测试网络连通性 ===
+            String accessToken = reviewService.getAccessToken();
+            if (accessToken == null || accessToken.isEmpty()) {
+                log.error("组织架构接口网络不通，无法同步组织架构缓存，请检查钉钉接口配置或网络连接");
+                return;
+            }
+
+            log.info("组织架构接口网络通畅，开始并发同步...");
+
             // 清空旧缓存
             orgCacheMapper.deleteAll();
 
-            // 收集同步结果
-            int successCount = 0;
-            int failCount = 0;
+            // === 步骤2: 并发同步所有用户 ===
+            int threadPoolSize = 50;
+            ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize);
 
-            // 逐一同步用户
+            // 使用线程安全的集合收集结果
+            List<String> usersWithManager = new CopyOnWriteArrayList<>();  // 有科长或部长的用户
+            List<String> usersWithoutManager = new CopyOnWriteArrayList<>();  // 无科长也无部长的用户
+            List<String> failedUsers = new CopyOnWriteArrayList<>();  // 同步失败的用户
+
+            // 提交所有任务
+            List<Future<?>> futures = new ArrayList<>();
             for (ItemInfoResponse.MemberInfo user : users) {
                 String userid = user.getUserId();
+                String displayName = user.getDisplayName() != null ? user.getDisplayName() : user.getName();
                 if (userid == null || userid.isEmpty()) {
                     continue;
                 }
 
-                try {
-                    // 调用钉钉API获取科长/部长
-                    OrganizationManagerResponse managerInfo = reviewService.queryOrganizationManager(userid);
+                Future<?> future = executor.submit(() -> {
+                    try {
+                        // 调用钉钉API获取科长/部长
+                        OrganizationManagerResponse managerInfo = reviewService.queryOrganizationManager(userid);
 
-                    OrgCache cache = new OrgCache();
-                    cache.setUserid(userid);
-                    cache.setLastSyncTime(LocalDateTime.now());
+                        OrgCache cache = new OrgCache();
+                        cache.setUserid(userid);
+                        cache.setLastSyncTime(LocalDateTime.now());
 
-                    // 解析科长/部长信息
-                    if (managerInfo != null) {
-                        // 科长：取第一个
-                        if (managerInfo.getSectionManager() != null && !managerInfo.getSectionManager().isEmpty()) {
-                            cache.setManagerUserid(managerInfo.getSectionManager().get(0));
+                        // 解析科长/部长信息
+                        boolean hasManager = false;
+                        boolean hasDirector = false;
+
+                        if (managerInfo != null) {
+                            // 科长：取第一个
+                            if (managerInfo.getSectionManager() != null && !managerInfo.getSectionManager().isEmpty()) {
+                                cache.setManagerUserid(managerInfo.getSectionManager().get(0));
+                                hasManager = true;
+                            }
+                            // 部长：取第一个
+                            if (managerInfo.getDepartmentManager() != null && !managerInfo.getDepartmentManager().isEmpty()) {
+                                cache.setDirectorUserid(managerInfo.getDepartmentManager().get(0));
+                                hasDirector = true;
+                            }
                         }
-                        // 部长：取第一个
-                        if (managerInfo.getDepartmentManager() != null && !managerInfo.getDepartmentManager().isEmpty()) {
-                            cache.setDirectorUserid(managerInfo.getDepartmentManager().get(0));
+
+                        orgCacheMapper.insert(cache);
+
+                        // 分类统计
+                        if (hasManager || hasDirector) {
+                            usersWithManager.add(userid);
+                        } else {
+                            usersWithoutManager.add(displayName + "(" + userid + ")");
                         }
+
+                    } catch (Exception e) {
+                        failedUsers.add(displayName + "(" + userid + ")");
+                        log.debug("同步用户失败: userid={}, error={}", userid, e.getMessage());
                     }
+                });
+                futures.add(future);
+            }
 
-                    orgCacheMapper.insert(cache);
-                    successCount++;
-
-                } catch (Exception e) {
-                    log.error("同步用户组织架构失败, userid={}, error={}", userid, e.getMessage());
-                    failCount++;
+            // 等待所有任务完成
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException | ExecutionException e) {
+                    log.debug("任务执行异常: {}", e.getMessage());
                 }
             }
 
-            log.info("组织架构同步完成, 成功={}, 失败={}", successCount, failCount);
+            // 关闭线程池
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+            }
+
+            // === 步骤3: 打印同步结果 ===
+            log.info("组织架构同步完成: 有科长/部长的用户数={}, 无科长/部长的用户数={}, 同步失败的用户数={}",
+                    usersWithManager.size(), usersWithoutManager.size(), failedUsers.size());
+
+            if (!usersWithoutManager.isEmpty()) {
+                log.info("无科长/部长的用户列表: {}", usersWithoutManager);
+            }
+
+            if (!failedUsers.isEmpty()) {
+                log.warn("同步失败的用户列表: {}", failedUsers);
+            }
 
         } catch (Exception e) {
             log.error("组织架构缓存同步失败: {}", e.getMessage(), e);

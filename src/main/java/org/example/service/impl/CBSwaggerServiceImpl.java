@@ -507,7 +507,7 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
-     * 获取条目 JSON 数据
+     * 获取条目 JSON 数据（带429重试）
      *
      * @param itemId 条目ID
      * @return JSON 数据，不存在返回null
@@ -519,20 +519,86 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
         String url = baseUrl() + "/v3/items/" + itemId;
 
-        ResponseEntity<JsonNode> response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                httpHelper.getAuthEntity(),
-                JsonNode.class
-        );
+        // 带429重试的API调用
+        return executeWithRetry(() -> {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    httpHelper.getAuthEntity(),
+                    JsonNode.class
+            );
 
-        JsonNode body = response.getBody();
-        if (body == null || body.isMissingNode()) {
-            log.warn("条目不存在, itemId={}", itemId);
-            return null;
+            JsonNode body = response.getBody();
+            if (body == null || body.isMissingNode()) {
+                log.warn("条目不存在, itemId={}", itemId);
+                return null;
+            }
+            return body;
+        }, "fetchItemJson", itemId);
+    }
+
+    /**
+     * 带429重试的API调用执行器
+     *
+     * @param action 要执行的API调用
+     * @param operationName 操作名称（用于日志）
+     * @param itemId 条目ID（用于日志）
+     * @return API调用结果
+     */
+    private JsonNode executeWithRetry(java.util.function.Supplier<JsonNode> action, String operationName, Integer itemId) {
+        int maxRetries = 3;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return action.get();
+
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429) {
+                    // 429限流，解析retryAfterSeconds并等待重试
+                    int retryAfterSeconds = extractRetryAfterSeconds(e.getMessage());
+                    log.warn("API限流, operation={}, itemId={}, 等待{}秒后重试(第{}次)",
+                            operationName, itemId, retryAfterSeconds, attempt + 1);
+
+                    try {
+                        Thread.sleep(retryAfterSeconds * 1000L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("重试等待被中断", ie);
+                    }
+                } else {
+                    // 其他HTTP错误直接抛出
+                    throw e;
+                }
+            }
         }
 
-        return body;
+        log.warn("API调用失败(重试{}次后): operation={}, itemId={}", maxRetries, operationName, itemId);
+        return null;
+    }
+
+    /**
+     * 从错误消息中提取retryAfterSeconds
+     *
+     * @param errorMessage 错误消息
+     * @return 重试等待秒数，默认返回2
+     */
+    private int extractRetryAfterSeconds(String errorMessage) {
+        try {
+            if (errorMessage != null && errorMessage.contains("retryAfterSecond")) {
+                String pattern = "retryAfterSecond\":";
+                int start = errorMessage.indexOf(pattern);
+                if (start > 0) {
+                    start += pattern.length();
+                    int end = errorMessage.indexOf("}", start);
+                    if (end > start) {
+                        return Integer.parseInt(errorMessage.substring(start, end).trim());
+                    }
+                }
+            }
+        } catch (NumberFormatException e) {
+            log.debug("解析retryAfterSeconds失败: {}", errorMessage);
+        }
+        return 2; // 默认等待2秒
     }
 
     /**

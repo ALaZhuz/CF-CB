@@ -12,24 +12,20 @@ classify-config:
     "5":
       tracker-types:
         "Bug":                                    # Bug 类型启用分类通知
-          classify-field: "priority"
+          classify-field: "严重程度"
           classify-rules:
-            - category: "High"
+            - category: "A"
               member-interval-days: 1
               manager-escalate-days: 1
               director-escalate-days: 1
-            - category: "Normal"
+            - category: "B"
               member-interval-days: 1
               manager-escalate-days: 3
               director-escalate-days: 5
-            - category: "Low"
+            - category: "C"
               member-interval-days: 1
               manager-escalate-days: 5
               director-escalate-days: null
-        # "Requirement": null                    # Requirement 类型不启用分类通知（可省略）
-        # "Task":                                 # Task 类型也可配置独立规则
-        #   classify-field: "severities"
-        #   classify-rules: ...
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tracker类型映射（决定消息中 {trackertype} 显示内容）
@@ -37,12 +33,8 @@ classify-config:
 # ─────────────────────────────────────────────────────────────────────────────
 type-mappings:
   global:
-    Requirement: "需求"
-    Bug: "缺陷"
-    Task: "任务"
   projects:
     "5":
-      Requirement: "智驾需求"
       Bug: "问题"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,22 +47,17 @@ extra-fields:
       label:
   projects:
     "5":
+      - field: "严重程度"
+        label: "严重程度"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 全局工作流模板（无description字段）
 # 项目级可直接引用或定义同名覆盖
 # ─────────────────────────────────────────────────────────────────────────────
-global-workflows:
-  - name: "标准Bug工作流"
-    states:
-      - name: "新建"
-        notify: false
-      - name: "处理中"
-        notify-field: "assignedTo"
-      - name: "已解决"
-        notify-field: "submitter"
-      - name: "已关闭"
-        notify: false
+#global-workflows:
+#  - name:
+#    states:
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 项目级工作流配置
@@ -81,54 +68,62 @@ projects:
 
     # 项目独有 workflow（复用全局直接在tracker-matching引用）
     workflows:
-      - name: "客户需求流程"
-        states:
-          - name: "New"
-            notify-field: "assignedTo"
-            scheduled-notify: true
-          - name: "Draft"
-            notify-field: "assignedTo"
-            scheduled-notify: true
-          - name: "Waiting for approval"
-            notify-field: "assignedTo"
-            scheduled-notify: true
-          - name: "Accepted"
-            notify-field: false
-
-
       - name: "问题工作流"
         states:
-          - name: "New"
+          - name: "新建"
             notify-field: "assignedTo"
             scheduled-notify: true
-          - name: "Verified"
+          - name: "重复"
+            notify-field: "裁决人"
+            scheduled-notify: true
+          - name: "处理中"
             notify-field: "assignedTo"
             scheduled-notify: true
-          - name: "In progress"
-            notify-field: "Resolved"
+          - name: "无效bug"
+            notify-field: ""
             scheduled-notify: true
-          - name: "InQA"
+          - name: "设计如此"
+            notify-field: ""
+            scheduled-notify: true
+          - name: "不予解决"
+            notify: false
+            scheduled-notify: true
+          - name: "申请延后处理"
+            notify-field: "supervisors"
+            scheduled-notify: true
+          - name: "持续跟踪"
+            notify-field: "submitter"
+            scheduled-notify: true
+          - name: "发布"
+            notify-field: "发布责任人"
+          - name: "裁决"
+            notify-field: "裁决人"
+            scheduled-notify: true
+          - name: "延后处理"
+            notify-field: "supervisors"
+            scheduled-notify: true
+          - name: "验证"
+            notify-field: "验证责任人"
+            scheduled-notify: true
+          - name: "结束"
+            notify: false
+          - name: "重新开启"
             notify-field: "assignedTo"
             scheduled-notify: true
-          - name: "Reopened"
-            notify-field: "assignedTo"
-            scheduled-notify: true
-          - name: "	Closed"
+          - name: "解决"
             notify: false
 
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
-      - tracker-id: 5292
-        workflow: "客户需求流程"
-      - tracker-id: 5295
-        workflow: "问题工作流"
+      #      - tracker-id: 5292
+      #        workflow: "客户需求流程"
       - tracker-type: "Bug"
-        workflow: "标准Bug工作流"
+        workflow: "问题工作流"
 
     # trackers：差异部分配置（最高优先级，可定义extra-fields覆盖项目级）
-    trackers:
-      - tracker-id: 5295
-        # tracker级 extra-fields（完全覆盖项目级）
-        extra-fields:
-          - field: "priority"
-            label: "严重程度"
+#    trackers:
+#      - tracker-id: 5295
+#        # tracker级 extra-fields（完全覆盖项目级）
+#        extra-fields:
+#          - field: "priority"
+#            label: "严重程度"

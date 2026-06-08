@@ -11,4 +11,13 @@ public interface ReviewService {
      * @return 领导信息
      */
     OrganizationManagerResponse queryOrganizationManager(String employeeId);
+
+    /**
+     * 获取AccessToken
+     *
+     * 用于检测网络连通性。
+     *
+     * @return AccessToken，获取失败返回空字符串
+     */
+    String getAccessToken();
 }
