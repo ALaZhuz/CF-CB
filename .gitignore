@@ -44,3 +44,4 @@ build/
 *.yaml
 *.db
 *.docx
+*.xml

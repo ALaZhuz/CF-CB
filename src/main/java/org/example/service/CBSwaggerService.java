@@ -47,9 +47,21 @@ public interface CBSwaggerService {
     CBTrackerItemsResponse getAllTrackerItems(int page, int pageSize, int trackerId);
 
     /**
-     * 查询所有评审
+     * 查询配置账户相关（创建、审阅、审查）的评审，不能看到所有评审
      */
-    List<ReviewItem> fetchAllReviews();
+    List<ReviewItem> myReviews();
+
+    /**
+     * 查询所有open views
+     * @return
+     */
+    List<ReviewItem.Review> fetchAllOpenReviews();
+
+    /**
+     * 查询所有canceled views
+     * @return
+     */
+    List<ReviewItem.Review> fetchAllCanceledReviews();
 
     /**
      * 获取单个评审的统计信息
@@ -176,18 +188,5 @@ public interface CBSwaggerService {
      * @return 进入目标状态的时间，未找到返回当前时间（兜底）
      */
     LocalDateTime getEnterStateTime(Integer itemId, String targetState);
-
-    /**
-     * 查询所有评审
-     * state:
-     * 开启--OPEN
-     * 关闭--CLOSED
-     */
-
-
-    /**
-     * 删除Tracker条目
-     */
-
 
 }

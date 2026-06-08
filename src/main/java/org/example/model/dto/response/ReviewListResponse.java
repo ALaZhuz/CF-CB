@@ -1,6 +1,8 @@
-package org.example.model.cb;
+package org.example.model.dto.response;
+
 
 import lombok.Data;
+import org.example.model.cb.ReviewItem;
 
 import java.util.List;
 
