@@ -2,6 +2,8 @@ package org.example.workflow.dto;
 
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 校验请求DTO
  *
@@ -14,13 +16,13 @@ import lombok.Data;
 @Data
 public class ValidateRequest {
 
-    /** 条目ID */
+    /** 条目ID（新建时为null） */
     private Integer itemId;
 
     /** 目标状态名称 */
     private String targetState;
 
-    /** Tracker ID（可选，用于加速配置查询） */
+    /** Tracker ID（可选，用于加速配置查询，新建时必填） */
     private Integer trackerId;
 
     /** Tracker名称（可选，用于匹配规则） */
@@ -31,4 +33,13 @@ public class ValidateRequest {
 
     /** 项目ID（可选，用于查找项目配置） */
     private Integer projectId;
+
+    /** 通知字段名称（可选，新建时由Groovy脚本传递） */
+    private String notifyField;
+
+    /** 通知成员userid列表（可选，新建时由Groovy脚本传递） */
+    private List<String> notifyUserIds;
+
+    /** 通知成员名称列表（可选，用于日志记录） */
+    private List<String> notifyMemberNames;
 }
