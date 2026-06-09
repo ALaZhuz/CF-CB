@@ -61,9 +61,7 @@
     <last-used-providers />
   </component>
   <component name="DBNavigator.Project.DatabaseFileManager">
-    <open-files>
-      <object connection-id="2e36ac31-4f06-4fb4-8abf-cf0a55a76990" object-ref="schemas/main/tables/item_state_record" />
-    </open-files>
+    <open-files />
   </component>
   <component name="DBNavigator.Project.DatabasePrerequisiteManager">
     <prerequisites />
