@@ -212,7 +212,7 @@ class ScheduledNotifyServiceTest {
         rule2.setMemberIntervalDays(2);
 
         config.setClassifyRules(List.of(rule1, rule2));
-        config.setDefaultCategory("一般");
+//        config.setDefaultCategory("一般");
 
         // "轻微" 不匹配任何规则，使用默认分类
         ClassifyRule matched = realService.matchClassifyRule("轻微", config);

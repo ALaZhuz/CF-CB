@@ -6,23 +6,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.config.CBProperties;
 import org.example.config.CodeBeamerHttpHelper;
 import org.example.model.cb.ReviewItem;
-import org.example.model.cb.ReviewListResponse;
 import org.example.model.dto.request.AssociationsRequest;
 import org.example.model.dto.request.TrackerItemFieldRequest;
 import org.example.model.dto.response.*;
 import org.example.model.enums.RelationType;
 import org.example.service.CBSwaggerService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.util.UriComponentsBuilder;
-import org.springframework.web.util.UriUtils;
 import org.springframework.web.client.RestTemplate;
 
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -909,10 +902,10 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
-     * 获取所有评审
+     * 获取与配置账户相关的评审
      */
     @Override
-    public List<ReviewItem> fetchAllReviews() {
+    public List<ReviewItem> myReviews() {
         List<ReviewItem> all = new ArrayList<>();
         int pageNo = 1;
         int pageSize = 100;
@@ -941,6 +934,85 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         return all;
     }
 
+    @Override
+    public List<ReviewItem.Review> fetchAllOpenReviews() {
+        List<ReviewItem.Review> allOpenReviews = new ArrayList<>();
+        int pageSize = 100;
+        int page = 1;
+
+        while (true) {
+            try {
+                OpenReviewsResponse response = fetchOpenReviewsPage(page, pageSize);
+                if (response == null || response.getOpenReviews() == null || response.getOpenReviews().isEmpty()) {
+                    break;
+                }
+
+                // 转换OpenReviews到ReviewItem.Review
+                for (OpenReviewsResponse.OpenReviews openReview : response.getOpenReviews()) {
+                    ReviewItem.Review review = new ReviewItem.Review();
+                    review.setId(openReview.getReviewId());
+                    review.setName(openReview.getReviewName());
+                    review.setDeadline(openReview.getDeadline());
+                    review.setModerators(openReview.getModerators());
+                    review.setReviewers(openReview.getReviewers());
+                    review.setViewers(openReview.getViewers());
+
+                    allOpenReviews.add(review);
+                }
+
+                // 检查是否还有更多页
+                Integer total = response.getTotal();
+                if (total == null || allOpenReviews.size() >= total) {
+                    break;
+                }
+                page++;
+            } catch (Exception e) {
+                log.error("获取第{}页open reviews失败: {}", page, e.getMessage(), e);
+                break;
+            }
+        }
+
+        log.info("获取所有open reviews完成，共{}条记录", allOpenReviews.size());
+        return allOpenReviews;
+    }
+
+    @Override
+    public List<ReviewItem.Review> fetchAllCanceledReviews() {
+        List<ReviewItem.Review> allCanceledReviews = new ArrayList<>();
+        int pageSize = 100;
+        int page = 1;
+
+        while (true) {
+            try {
+                CanceledReviewsResponse response = fetchCanceledReviewsPage(page, pageSize);
+                if (response == null || response.getCanceledReviewList() == null || response.getCanceledReviewList().isEmpty()) {
+                    break;
+                }
+
+                // 转换CanceledReview到ReviewItem.Review
+                for (CanceledReviewsResponse.CanceledReview canceledReview : response.getCanceledReviewList()) {
+                    ReviewItem.Review review = new ReviewItem.Review();
+                    review.setId(canceledReview.getReviewId());
+                    review.setName(canceledReview.getReviewName());
+                    allCanceledReviews.add(review);
+                }
+
+                // 检查是否还有更多页
+                Integer total = response.getTotal();
+                if (total == null || allCanceledReviews.size() >= total) {
+                    break;
+                }
+                page++;
+            } catch (Exception e) {
+                log.error("获取第{}页canceled reviews失败: {}", page, e.getMessage(), e);
+                break;
+            }
+        }
+
+        log.info("获取所有canceled reviews完成，共{}条记录", allCanceledReviews.size());
+        return allCanceledReviews;
+    }
+
     private ReviewListResponse fetchReviewPage(int pageNo, int pageSize) {
         String url = baseUrl() + "/reviews/list";
         Map<String, Object> req = Map.of(
@@ -959,7 +1031,49 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         return response.getBody();
     }
 
-    @Override
+    private OpenReviewsResponse fetchOpenReviewsPage(int page, int pageSize) {
+        String url = baseUrl() + "/reviews/openReviews?page=" + page + "&pageSize=" + pageSize;
+
+        // 构建请求体
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("advancedFilterCbQL", " ORDER BY submittedAt DESC");
+
+        HttpHeaders headers = httpHelper.getAuthHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        ResponseEntity<OpenReviewsResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                entity,
+                OpenReviewsResponse.class
+        );
+
+        return response.getBody();
+    }
+
+    private CanceledReviewsResponse fetchCanceledReviewsPage(int page, int pageSize) {
+        String url = baseUrl() + "/reviews/canceledReviews?page=" + page + "&pageSize=" + pageSize;
+
+        // 构建请求体
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("advancedFilterCbQL", " ORDER BY modifiedAt DESC");
+
+        HttpHeaders headers = httpHelper.getAuthHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        ResponseEntity<CanceledReviewsResponse> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                entity,
+                CanceledReviewsResponse.class
+        );
+        return response.getBody();
+    }
+
     public ReviewStatisticsResponse getReviewStatistics(String reviewId) {
         String url = baseUrl() + "/reviews/" + reviewId + "/reviewStatistics";
         ResponseEntity<ReviewStatisticsResponse> response = restTemplate.exchange(
