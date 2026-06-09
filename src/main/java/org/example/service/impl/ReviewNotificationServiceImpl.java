@@ -98,7 +98,7 @@ public class ReviewNotificationServiceImpl {
         }
 
         sendEightClockBuckets(nearExpiredByRecipient, "以下评审单即将截止，请您尽快处理！", "near_expired_last_sent", today, now, false,
-                false);
+                true);
         // 春风组织架构接口不可用
         sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true,
                 today.getDayOfWeek() == java.time.DayOfWeek.MONDAY);
@@ -281,15 +281,15 @@ public class ReviewNotificationServiceImpl {
         }
 
         // 8. 记录统计信息
-        int newCount = lifecycleBuckets.getOrDefault("NEW", Collections.emptyMap())
-                .values().stream().mapToInt(List::size).sum();
-        int canceledCount = lifecycleBuckets.getOrDefault("CANCELED", Collections.emptyMap())
-                .values().stream().mapToInt(List::size).sum();
-        int closedCount = lifecycleBuckets.getOrDefault("CLOSED", Collections.emptyMap())
-                .values().stream().mapToInt(List::size).sum();
-
-        log.info("生命周期同步完成：新增{}个，取消{}个，关闭{}个，总共处理{}条记录",
-                newCount, canceledCount, closedCount, newCount + canceledCount + closedCount);
+//        int newCount = lifecycleBuckets.getOrDefault("NEW", Collections.emptyMap())
+//                .values().stream().mapToInt(List::size).sum();
+//        int canceledCount = lifecycleBuckets.getOrDefault("CANCELED", Collections.emptyMap())
+//                .values().stream().mapToInt(List::size).sum();
+//        int closedCount = lifecycleBuckets.getOrDefault("CLOSED", Collections.emptyMap())
+//                .values().stream().mapToInt(List::size).sum();
+//
+//        log.info("生命周期同步完成：新增{}个，取消{}个，关闭{}个，总共处理{}条记录",
+//                newCount, canceledCount, closedCount, newCount + canceledCount + closedCount);
     }
 
     /**
@@ -602,6 +602,7 @@ public class ReviewNotificationServiceImpl {
             boolean overdueMode,
             boolean redLabelMode) {
         if (buckets == null || buckets.isEmpty()) {
+            log.info("每日定时任务没有需要发送的{}评审单！", overdueMode ? "超期" : "临期");
             return;
         }
         for (Map.Entry<String, Map<Long, List<ReviewRecord>>> entry : buckets.entrySet()) {
@@ -620,6 +621,7 @@ public class ReviewNotificationServiceImpl {
                     : buildNearExpiredMarkdown(grouped, redLabelMode);
             try {
                 dingService.sendMessage(userId, title, markdown);
+                log.info("每日{}定时任务钉钉消息发送成功, userId={}, title={}", overdueMode ? "超期" : "临期", userId, title);
                 for (List<ReviewRecord> group : grouped.values()) {
                     for (ReviewRecord r : group) {
                         repository.updateLastSent(r.reviewId, sentField, now);
@@ -705,11 +707,11 @@ public class ReviewNotificationServiceImpl {
                         }
                     }
                 } else {
-                    sb.append("  - ").append("\n评审统计信息：暂无数据\n");
+                    sb.append("  - ").append("评审统计信息：暂无数据").append("\n");
                 }
             } catch (Exception e) {
                 log.error("获取评审统计信息失败，reviewId={}", item.reviewId, e);
-                sb.append("\n（统计信息获取失败）\n");
+                sb.append("  - ").append("统计信息获取失败").append("\n");
             }
         }
         return sb.toString();
