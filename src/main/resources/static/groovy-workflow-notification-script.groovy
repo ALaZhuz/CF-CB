@@ -33,9 +33,6 @@ String baseUrl = "http://localhost:8081/workflow"
 /**
  * 从TrackerItem获取指定字段的成员userid列表
  *
- * 注意：Codebeamer的userid是指用户名（如"yangyang.zhang"），不是整数ID。
- * 钉钉用户缓存使用的是Codebeamer用户名。
- *
  * @param trackerItem 条目对象
  * @param fieldName 字段名称（如 assignedTo、submitter、自定义字段名）
  * @return userid列表（Codebeamer用户名）
@@ -76,27 +73,34 @@ List<String> getMemberUserIds(def trackerItem, String fieldName) {
         // 自定义字段：从customFields获取
         else {
             def customFields = trackerItem.getCustomFields()
+            logger.info("自定义字段查询: fieldName=$fieldName, customFields数量=${customFields?.size()}")
             if (customFields != null) {
                 for (field in customFields) {
                     // 按name或label匹配
                     String name = field.getName()
                     String label = field.getLabel()
+                    logger.info("检查字段: name=$name, label=$label")
                     if (fieldName.equals(name) || fieldName.equals(label)) {
+                        logger.info("找到匹配字段: fieldName=$fieldName")
                         def values = field.getValues()
                         if (values != null) {
                             for (value in values) {
+                                logger.info("字段值: value=$value, 类型=${value?.getClass()?.getName()}")
                                 // 成员类型字段（UserDto）
                                 if (value instanceof UserDto) {
-                                    String userId = value.getUserId()
-                                    if (userId != null && !userId.isEmpty()) {
-                                        userIds.add(userId)
+                                    // 使用 getName() 获取用户名（与钉钉缓存格式一致）
+                                    String userName = value.getName()
+                                    logger.info("UserDto用户名: $userName")
+                                    if (userName != null && !userName.isEmpty()) {
+                                        userIds.add(userName)
                                     }
                                 }
                                 // 其他类型（可能是UserReference的Map形式）
                                 else if (value instanceof Map) {
-                                    String userId = value.get("userId")
-                                    if (userId != null && !userId.isEmpty()) {
-                                        userIds.add(userId)
+                                    String userName = value.get("name")
+                                    logger.info("Map用户名: $userName")
+                                    if (userName != null && !userName.isEmpty()) {
+                                        userIds.add(userName)
                                     }
                                 }
                             }
@@ -220,7 +224,6 @@ def sendGetRequest(String url) {
         responseText = connection.getInputStream().getText("UTF-8")
     } else {
         responseText = connection.getErrorStream()?.getText("UTF-8") ?: ""
-        logger.error("HTTP GET请求失败: code=$responseCode, body=$responseText")
         throw new Exception("HTTP请求失败: $responseCode")
     }
 

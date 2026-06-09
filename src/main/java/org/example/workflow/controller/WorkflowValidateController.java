@@ -40,12 +40,12 @@ public class WorkflowValidateController {
             @RequestParam Integer trackerId,
             @RequestParam String targetState) {
 
-        log.info("收到查询notifyField请求: trackerId={}, targetState={}", trackerId, targetState);
+//        log.info("收到查询notifyField请求: trackerId={}, targetState={}", trackerId, targetState);
 
         NotifyFieldResponse response = workflowValidateService.getNotifyField(trackerId, targetState);
 
-        log.info("查询notifyField结果: notifyField={}, needsNotify={}",
-                response.getNotifyField(), response.isNeedsNotify());
+//        log.info("查询notifyField结果: notifyField={}, needsNotify={}",
+//                response.getNotifyField(), response.isNeedsNotify());
 
         return response;
     }
@@ -62,15 +62,12 @@ public class WorkflowValidateController {
      */
     @PostMapping("/validate")
     public ValidateResponse validate(@RequestBody ValidateRequest request) {
-        log.info("收到beforeEvent校验请求: itemId={}, targetState={}",
-                request.getItemId(), request.getTargetState());
-
         ValidateResponse response = workflowValidateService.validate(request);
 
-        if (response.isSuccess()) {
-            log.info("校验通过，放行保存");
-        } else {
-            log.warn("校验失败，阻止保存: {}", response.getErrorMessage());
+        // 合并日志：只在失败时输出 warn，成功时不输出（Service层已输出）
+        if (!response.isSuccess()) {
+            log.warn("[beforeEvent] 校验失败: itemId={}, targetState={}, error={}",
+                    request.getItemId(), request.getTargetState(), response.getErrorMessage());
         }
 
         return response;

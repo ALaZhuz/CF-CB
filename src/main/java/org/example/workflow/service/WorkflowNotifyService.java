@@ -70,18 +70,15 @@ public class WorkflowNotifyService {
         String previousState = request.getPreviousState();
         String targetState = request.getTargetState();
 
-        log.info("开始afterEvent处理: itemId={}, previousState={}, targetState={}",
-                itemId, previousState, targetState);
-
         try {
             // 1. 获取条目详情
             ItemInfoResponse itemInfo = cbSwaggerService.getItemInfo(itemId);
             if (itemInfo == null) {
+                log.warn("[afterEvent] 条目不存在: itemId={}", itemId);
                 response.setErrorMessage("条目不存在: itemId=" + itemId);
                 return response;
             }
 
-            // 补充tracker和项目信息
             Integer trackerId = itemInfo.getTracker().getId();
             String trackerType = itemInfo.getTracker().getTypeName();
             Integer projectId = itemInfo.getProject().getId();
@@ -91,54 +88,49 @@ public class WorkflowNotifyService {
                     trackerId, trackerType, projectId);
 
             if (workflow == null) {
-                log.info("未找到工作流配置，不做处理: itemId={}", itemId);
                 response.setSuccess(true);
                 response.setActionType("无需处理");
                 return response;
             }
 
-            // 3. 判断 previousState 是否是需要通知的状态
+            // 3. 判断状态转换情况
             WorkflowTemplate.StateConfig previousStateConfig = workflowConfigService.getStateConfig(workflow, previousState);
             boolean previousStateNeedsNotify = workflowConfigService.shouldNotify(previousStateConfig);
 
-            // 4. 判断 targetState 是否是需要通知的状态
             WorkflowTemplate.StateConfig targetStateConfig = workflowConfigService.getStateConfig(workflow, targetState);
             boolean targetStateNeedsNotify = workflowConfigService.shouldNotify(targetStateConfig);
 
-            // 5. 根据状态转换情况决定操作
+            // 4. 离开通知状态 → 删除记录
             if (previousStateNeedsNotify && !targetStateNeedsNotify) {
-                // 从通知状态进入非通知状态 → 离开状态，删除记录
                 itemStateRecordMapper.deleteByItemId(itemId);
-                log.info("离开通知状态，删除状态记录: itemId={}, previousState={}, targetState={}",
-                        itemId, previousState, targetState);
+                log.info("[afterEvent] 离开通知状态: itemId={}, {} → {}", itemId, previousState, targetState);
                 response.setSuccess(true);
                 response.setActionType("离开状态");
                 return response;
             }
 
-            // 如果 targetState 不需要通知，不做处理（可能是非通知状态之间的转换）
+            // 5. 目标状态不需要通知
             if (!targetStateNeedsNotify) {
-                log.info("目标状态不需要通知，不做处理: itemId={}, targetState={}", itemId, targetState);
                 response.setSuccess(true);
                 response.setActionType("无需处理");
                 return response;
             }
 
-            // 6. 进入通知状态（包括状态转换）：发送通知
+            // 6. 进入通知状态 → 发送通知
             String notifyField = targetStateConfig.getNotifyField();
             List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
 
             if (members == null || members.isEmpty()) {
-                log.warn("通知字段无成员，跳过通知: itemId={}, notifyField={}", itemId, notifyField);
+                log.warn("[afterEvent] 通知字段无成员: itemId={}, notifyField={}", itemId, notifyField);
                 response.setSuccess(true);
                 response.setActionType("无需通知");
                 return response;
             }
 
-            // 7. 格式化消息内容（使用固定模板 + type-mappings + extra-fields）
+            // 7. 格式化消息
             String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId, trackerId);
 
-            // 8. 发送通知给每个成员
+            // 8. 发送通知
             List<String> notifiedUsers = new ArrayList<>();
             List<String> failedUsers = new ArrayList<>();
 
@@ -151,23 +143,15 @@ public class WorkflowNotifyService {
                 try {
                     dingService.sendTextMessage(userid, messageContent);
                     notifiedUsers.add(userid);
-
-                    // 发送成功，打印消息内容
-                    log.info("钉钉通知发送成功: itemId={}, userid={}, message=\n{}", itemId, userid, messageContent);
-
-                    // 记录发送日志（成功）
                     saveNotifyLog(itemId, userid, "即时", "成功");
-
                 } catch (Exception e) {
-                    log.error("发送通知失败: itemId={}, userid={}, error={}", itemId, userid, e.getMessage());
+                    log.error("[afterEvent] 发送失败: itemId={}, userid={}, error={}", itemId, userid, e.getMessage());
                     failedUsers.add(userid);
-
-                    // 记录发送日志（失败）
                     saveNotifyLog(itemId, userid, "即时", "失败: " + e.getMessage());
                 }
             }
 
-            // 9. 持久化状态记录（记录 trackerType 供定时通知使用）
+            // 9. 持久化状态记录
             saveItemStateRecord(itemId, itemInfo.getName(), trackerId, trackerType, projectId, targetState);
 
             // 10. 返回响应
@@ -175,11 +159,13 @@ public class WorkflowNotifyService {
             response.setNotifiedUsers(notifiedUsers);
             response.setFailedUsers(failedUsers);
             response.setActionType("进入状态");
-            log.info("afterEvent处理完成: itemId={}, notified={}, failed={}",
-                    itemId, notifiedUsers.size(), failedUsers.size());
+
+            // 合并日志：一次通知只输出一条成功日志，包含消息内容
+            log.info("[afterEvent] 通知完成: itemId={}, {} → {}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
+                    itemId, previousState, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
 
         } catch (Exception e) {
-            log.error("afterEvent处理异常: itemId={}, error={}", itemId, e.getMessage(), e);
+            log.error("[afterEvent] 处理异常: itemId={}, error={}", itemId, e.getMessage(), e);
             response.setErrorMessage("处理异常: " + e.getMessage());
         }
 
@@ -228,15 +214,13 @@ public class WorkflowNotifyService {
                         .append(fieldValue)
                         .append("\n");
             } else {
-                // 找不到字段值，警告提示
-                log.warn("extra-field字段未找到或值为空: itemId={}, fieldName={}, 请检查Codebeamer中是否存在该字段或字段名是否正确",
-                        itemInfo.getId(), extraField.getField());
-            }
+                    // 找不到字段值，降低日志级别
+                    log.debug("extra-field字段未找到或值为空: itemId={}, fieldName={}", itemInfo.getId(), extraField.getField());
+                }
         }
 
         // 4. 构建固定模板消息
         StringBuilder message = new StringBuilder();
-        message.append("【").append(trackerTypeDisplay).append("】\n");
         message.append(trackerTypeDisplay).append("名称: ").append(itemInfo.getName() != null ? itemInfo.getName() : "").append("\n");
         message.append(trackerTypeDisplay).append("状态: ").append(targetState != null ? targetState : "").append("，请您处理\n");
         message.append(notifyField).append(": ").append(notifyMembersStr).append("\n");
@@ -329,8 +313,7 @@ public class WorkflowNotifyService {
             }
         }
 
-        log.warn("extra-field字段未找到或值为空: itemId={}, fieldName={}, 请检查Codebeamer中是否存在该字段或字段名是否正确",
-                itemInfo.getId(), fieldName);
+        log.debug("extra-field字段未找到或值为空: itemId={}, fieldName={}", itemInfo.getId(), fieldName);
         return null;
     }
 

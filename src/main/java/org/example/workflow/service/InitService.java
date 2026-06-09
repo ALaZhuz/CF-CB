@@ -91,10 +91,8 @@ public class InitService {
         InitResult result = new InitResult();
         Integer projectId = projectConfig.getProjectId();
 
-        log.info("初始化项目: projectId={}, projectName={}", projectId, projectConfig.getProjectName());
-
         // 收集需要初始化的 tracker 及其 workflow
-        // 使用 Map 避免重复处理同一个 tracker
+        // 使用 Map 遍免重复处理同一个 tracker
         Map<Integer, String> trackerWorkflowMap = new HashMap<>();
 
         // 1. 先从 tracker-matching 收集（基础配置）
@@ -140,6 +138,10 @@ public class InitService {
             InitResult trackerResult = initTracker(projectId, entry.getKey(), entry.getValue());
             result.add(trackerResult);
         }
+
+        // 合并日志：项目初始化完成后输出一条汇总日志
+        log.info("[初始化] 项目完成: projectId={}, trackerCount={}, 处理={}, 新增={}, 跳过={}",
+                projectId, trackerWorkflowMap.size(), result.getProcessed(), result.getInserted(), result.getSkipped());
 
         return result;
     }
@@ -208,7 +210,7 @@ public class InitService {
             }
         }
 
-        log.info("查找tracker类型匹配: projectId={}, trackerType={}, 找到{}个tracker",
+        log.debug("查找tracker类型匹配: projectId={}, trackerType={}, 找到{}个tracker",
                 projectId, trackerType, result.size());
 
         return result;
@@ -295,6 +297,17 @@ public class InitService {
             return result;
         }
 
+        // 在开始时获取 trackerType（同一个 tracker 的所有条目类型相同）
+        String trackerType = null;
+        try {
+            CBTrackerInfoResponse trackerInfo = getTrackerInfoWithRetry(trackerId);
+            if (trackerInfo != null && trackerInfo.getType() != null) {
+                trackerType = trackerInfo.getType().getName();
+            }
+        } catch (Exception e) {
+            log.warn("获取tracker类型失败: trackerId={}, error={}", trackerId, e.getMessage());
+        }
+
         // 遍历需要定时通知的状态
         for (WorkflowTemplate.StateConfig stateConfig : workflow.getStates()) {
             // 判断是否启用定时通知
@@ -305,7 +318,8 @@ public class InitService {
             try {
                 // 查询该状态的存量条目
                 List<TrackerItem> items = fetchItemsByTrackerAndState(trackerId, stateConfig.getName());
-                log.info("查询tracker状态条目: trackerId={}, state={}, itemCount={}",
+                // 降低日志级别
+                log.debug("查询tracker状态条目: trackerId={}, state={}, itemCount={}",
                         trackerId, stateConfig.getName(), items.size());
 
                 // 每次状态查询后添加延迟，避免 query API 限流
@@ -326,11 +340,12 @@ public class InitService {
                         // 获取进入状态时间
                         LocalDateTime enterStateTime = cbSwaggerService.getEnterStateTime(item.getId(), stateConfig.getName());
 
-                        // 写入记录
+                        // 写入记录（包含 trackerType）
                         ItemStateRecord record = new ItemStateRecord();
                         record.setItemId(item.getId());
                         record.setItemName(item.getName());
                         record.setTrackerId(trackerId);
+                        record.setTrackerType(trackerType);  // 直接设置 trackerType
                         record.setProjectId(projectId);
                         record.setTargetState(stateConfig.getName());
                         record.setEnterStateTime(enterStateTime);
