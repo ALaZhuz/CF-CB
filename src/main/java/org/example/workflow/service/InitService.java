@@ -384,12 +384,52 @@ public class InitService {
         List<TrackerItem> allItems = new ArrayList<>();
         int pageSize = 500;
         int page = 1;
+        int baseDelayMs = 1500; // 基础延迟 1.5 秒，避免速率限制
 
         // cbQL 查询：tracker.id = X AND status = 'Y'
         String queryString = String.format("tracker.id = %d AND status = '%s'", trackerId, targetState);
 
         while (true) {
-            CBQueryResponse response = cbSwaggerService.query(page, pageSize, queryString);
+            int retryCount = 0;
+            int maxRetry = 5;
+            CBQueryResponse response = null;
+
+            // 重试逻辑：处理 429 速率限制
+            while (retryCount < maxRetry) {
+                try {
+                    response = cbSwaggerService.query(page, pageSize, queryString);
+                    // 成功后添加延迟避免下一次请求被限流
+                    Thread.sleep(baseDelayMs);
+                    break;
+                } catch (InterruptedException e) {
+                    log.warn("延迟等待被中断");
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (org.springframework.web.client.HttpClientErrorException e) {
+                    if (e.getStatusCode().value() == 429) {
+                        // 解析 retryAfterSeconds
+                        int retryAfterSeconds = extractRetryAfterSeconds(e.getMessage());
+                        retryCount++;
+                        log.warn("API限流(tracker查询), trackerId={}, state={}, 等待{}秒后重试(第{}次)",
+                                trackerId, targetState, retryAfterSeconds, retryCount);
+                        try {
+                            Thread.sleep(retryAfterSeconds * 1000L);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                        // 重试成功后增加基础延迟
+                        baseDelayMs = Math.min(baseDelayMs + 500, 3000);
+                    } else {
+                        log.error("查询失败: trackerId={}, state={}, error={}", trackerId, targetState, e.getMessage());
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.error("查询异常: trackerId={}, state={}, error={}", trackerId, targetState, e.getMessage());
+                    break;
+                }
+            }
+
             if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
                 break;
             }
