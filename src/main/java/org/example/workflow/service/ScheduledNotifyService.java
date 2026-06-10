@@ -32,6 +32,9 @@ import java.util.stream.Collectors;
  * 3. 跨条目聚合：科长/部长收到一条包含所有负责条目的消息
  * 4. 发送通知并更新记录
  *
+ * 新增功能（2026-06-10）：
+ * - 预清理任务：在定时通知前几小时执行数据同步，确保数据正确
+ *
  * @author system
  * @since 1.0
  */
@@ -49,6 +52,7 @@ public class ScheduledNotifyService {
     private final ItemStateRecordMapper itemStateRecordMapper;
     private final NotifyLogMapper notifyLogMapper;
     private final DingUserCacheService dingUserCacheService;
+    private final InitService initService;
 
     @PostConstruct
     public void validateCacheReadiness() {
@@ -114,6 +118,89 @@ public class ScheduledNotifyService {
 
     public boolean areCachesReady() {
         return orgCacheService.getCacheSize() > 0 && dingUserCacheService.getCacheSize() > 0;
+    }
+
+    /**
+     * 预清理任务调度方法
+     *
+     * 在定时通知前几小时执行数据同步，确保：
+     * 1. 清理已删除条目的残留记录
+     * 2. 更新状态不一致的记录
+     * 3. 补录缺失的条目记录
+     *
+     * 执行时间通过 default-cleanup-time 配置（如 "04:00"）
+     */
+    @Scheduled(cron = "0 0/1 * * * *")
+    public void executeCleanup() {
+        String cleanupTime = workflowConfigService.getCleanupTime();
+
+        String[] timeParts = cleanupTime.split(":");
+        if (timeParts.length != 2) {
+            log.warn("配置的cleanupTime格式错误: {}, 使用默认4点", cleanupTime);
+            timeParts = new String[]{"04", "00"};
+        }
+
+        int configuredHour = Integer.parseInt(timeParts[0]);
+        int configuredMinute = Integer.parseInt(timeParts[1]);
+
+        LocalDateTime now = LocalDateTime.now();
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+
+        if (!(currentHour == configuredHour && currentMinute == configuredMinute)) {
+            log.debug("当前时间 {}:{} 不在配置的预清理时间 {}:{}，跳过执行",
+                    currentHour, currentMinute, configuredHour, configuredMinute);
+            return;
+        }
+
+        log.info("到达配置的预清理时间 {}:{}，开始执行数据同步", configuredHour, configuredMinute);
+        log.info("========== 预清理任务启动 ==========");
+
+        if (!areCachesReady()) {
+            log.warn("缓存服务未就绪，跳过本次预清理");
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            checkAndReloadConfig();
+
+            // 遍历所有配置的项目，执行数据同步
+            List<ProjectConfig> projects = workflowConfigService.getWorkflowProperties().getProjects();
+            int totalProcessed = 0;
+            int totalInserted = 0;
+            int totalUpdated = 0;
+            int totalDeleted = 0;
+            int totalSkipped = 0;
+
+            for (ProjectConfig project : projects) {
+                try {
+                    InitService.InitResult result = initService.supplementProject(project.getProjectId());
+                    totalProcessed += result.getProcessed();
+                    totalInserted += result.getInserted();
+                    totalUpdated += result.getUpdated();
+                    totalDeleted += result.getDeleted();
+                    totalSkipped += result.getSkipped();
+
+                    // 项目之间添加延迟，避免API限流
+                    Thread.sleep(2000);
+
+                } catch (InterruptedException e) {
+                    log.warn("延迟等待被中断");
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("项目数据同步失败: projectId={}, error={}", project.getProjectId(), e.getMessage());
+                }
+            }
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("========== 预清理任务完成 ========== 处理={}, 新增={}, 更新={}, 删除={}, 跳过={}, 耗时={}ms",
+                    totalProcessed, totalInserted, totalUpdated, totalDeleted, totalSkipped, duration);
+
+        } catch (Exception e) {
+            log.error("预清理任务执行失败: {}", e.getMessage(), e);
+        }
     }
 
     /**

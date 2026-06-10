@@ -20,6 +20,10 @@ import java.util.Map;
  * - global-workflows: 全局工作流模板
  * - projects: 项目级配置
  *
+ * 配置结构（2026-06-10更新）：
+ * - default-cleanup-time: 预清理执行时间（凌晨执行数据同步）
+ * - default-notify-time: 定时通知执行时间
+ *
  * @author system
  * @since 1.0
  */
@@ -27,6 +31,9 @@ import java.util.Map;
 @Component
 @ConfigurationProperties(prefix = "")
 public class WorkflowProperties {
+
+    /** 全局默认预清理时间（凌晨执行数据同步，确保定时通知前数据正确，格式：HH:mm，默认04:00） */
+    private String defaultCleanupTime = "04:00";
 
     /** 全局默认通知时间（每天执行定时通知的时间，格式：HH:mm，默认08:00） */
     private String defaultNotifyTime = "08:00";

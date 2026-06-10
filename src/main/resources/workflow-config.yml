@@ -4,6 +4,10 @@ dingtalk:
   mode: enterprise
   personal-webhook-url: ""
 
+# 预清理执行时间（凌晨执行数据同步，确保定时通知前数据正确）
+default-cleanup-time: "04:00"
+
+# 定时通知执行时间
 default-notify-time: "19:40"
 
 classify-config:

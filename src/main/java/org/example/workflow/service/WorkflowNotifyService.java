@@ -54,11 +54,17 @@ public class WorkflowNotifyService {
     /**
      * 执行afterEvent通知处理
      *
-     * 简化逻辑：只看目标状态（targetState）
-     * - targetState不需要通知 → 删除数据库记录
-     * - targetState需要通知 → 发送通知 + 创建/更新数据库记录
+     * 简化逻辑：即时通知与数据库记录完全分离
      *
-     * enter_state_time 始终设置为进入当前状态的时间（INSERT OR REPLACE 会更新）
+     * 一、即时通知（只看 notify 和 notifyField）
+     * - notifyField 有值 → 发送钉钉通知
+     * - notify=false 或 notifyField 为空 → 不发送即时通知
+     *
+     * 二、数据库记录（只看 scheduledNotify）
+     * - scheduledNotify=true → INSERT OR REPLACE（用于定时通知追踪）
+     * - scheduledNotify=false → DELETE（不再追踪）
+     *
+     * enter_state_time 始终设置为进入当前状态的时间
      *
      * @param request 通知请求
      * @return 通知响应
@@ -82,6 +88,7 @@ public class WorkflowNotifyService {
             Integer trackerId = itemInfo.getTracker().getId();
             String trackerType = itemInfo.getTracker().getTypeName();
             Integer projectId = itemInfo.getProject().getId();
+            String itemName = itemInfo.getName();
 
             // 2. 查找工作流配置
             WorkflowTemplate workflow = workflowConfigService.getWorkflowForTracker(
@@ -93,34 +100,50 @@ public class WorkflowNotifyService {
                 return response;
             }
 
-            // 3. 判断目标状态是否需要通知（简化逻辑，不看previousState）
+            // 3. 获取目标状态配置
             WorkflowTemplate.StateConfig targetStateConfig = workflowConfigService.getStateConfig(workflow, targetState);
-            boolean targetStateNeedsNotify = workflowConfigService.shouldNotify(targetStateConfig);
 
-            // 4. 目标状态不需要通知 → 删除记录
-            if (!targetStateNeedsNotify) {
+            // ========== 一、数据库记录处理（定时通知相关）==========
+
+            boolean needsScheduledNotify = workflowConfigService.getScheduledNotify(targetStateConfig);
+
+            if (!needsScheduledNotify) {
+                // 不需要定时通知 → 删除数据库记录
                 itemStateRecordMapper.deleteByItemId(itemId);
-                log.info("[afterEvent] 目标状态不需要通知，删除记录: itemId={}, targetState={}", itemId, targetState);
+                log.info("[afterEvent] 不需要定时通知，删除数据库记录: itemId={}, targetState={}", itemId, targetState);
+            } else {
+                // 需要定时通知 → INSERT OR REPLACE（更新状态和进入时间）
+                saveItemStateRecord(itemId, itemName, trackerId, trackerType, projectId, targetState);
+                log.info("[afterEvent] 需要定时通知，更新数据库记录: itemId={}, targetState={}", itemId, targetState);
+            }
+
+            // ========== 二、即时通知处理（与数据库无关）==========
+
+            boolean needsInstantNotify = workflowConfigService.shouldNotify(targetStateConfig);
+
+            if (!needsInstantNotify) {
+                // 不需要即时通知 → 直接返回
+                log.info("[afterEvent] 不需要即时通知: itemId={}, targetState={}", itemId, targetState);
                 response.setSuccess(true);
-                response.setActionType("离开状态");
+                response.setActionType(needsScheduledNotify ? "仅定时通知" : "离开状态");
                 return response;
             }
 
-            // 5. 目标状态需要通知 → 获取通知成员
+            // 需要即时通知 → 发送通知
             String notifyField = targetStateConfig.getNotifyField();
             List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
 
             if (members == null || members.isEmpty()) {
                 log.warn("[afterEvent] 通知字段无成员: itemId={}, notifyField={}", itemId, notifyField);
                 response.setSuccess(true);
-                response.setActionType("无需通知");
+                response.setActionType("无成员");
                 return response;
             }
 
-            // 6. 格式化消息
+            // 格式化消息
             String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId, trackerId);
 
-            // 7. 发送通知
+            // 发送通知
             List<String> notifiedUsers = new ArrayList<>();
             List<String> failedUsers = new ArrayList<>();
 
@@ -141,17 +164,13 @@ public class WorkflowNotifyService {
                 }
             }
 
-            // 8. 持久化状态记录（INSERT OR REPLACE，enter_state_time 会更新为当前时间）
-            saveItemStateRecord(itemId, itemInfo.getName(), trackerId, trackerType, projectId, targetState);
-
-            // 9. 返回响应
+            // 返回响应
             response.setSuccess(true);
             response.setNotifiedUsers(notifiedUsers);
             response.setFailedUsers(failedUsers);
-            response.setActionType("进入状态");
+            response.setActionType("即时通知");
 
-            // 合并日志
-            log.info("[afterEvent] 通知完成: itemId={}, targetState={}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
+            log.info("[afterEvent] 即时通知完成: itemId={}, targetState={}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
                     itemId, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
 
         } catch (Exception e) {
