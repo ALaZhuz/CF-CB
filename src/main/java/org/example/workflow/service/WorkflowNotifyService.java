@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -29,12 +30,11 @@ import java.util.stream.Collectors;
  * 2. 离开目标状态：删除状态记录
  * 3. 状态之间互转：不做处理
  *
- * 消息模板格式（固定，2026-05-27更新）：
- * 【{trackertype}】
+ * 消息模板格式：
  * {trackertype}名称: {item_name}
  * {trackertype}状态: {status_name}，请您处理
- * {notify_field_name}: {notify_display_names}
- * {extra_fields}                  ← 动态插入（如果配置了）
+ * {notify_field_display_name}: {notify_display_names}
+ * {extra_fields}
  * {trackertype}链接: {item_url}
  *
  * @author system
@@ -53,11 +53,6 @@ public class WorkflowNotifyService {
 
     /**
      * 执行afterEvent通知处理
-     *
-     * 处理流程：
-     * 1. 判断是进入状态还是离开状态
-     * 2. 进入目标状态：发送通知并记录状态
-     * 3. 离开目标状态：删除状态记录
      *
      * @param request 通知请求
      * @return 通知响应
@@ -160,7 +155,7 @@ public class WorkflowNotifyService {
             response.setFailedUsers(failedUsers);
             response.setActionType("进入状态");
 
-            // 合并日志：一次通知只输出一条成功日志，包含消息内容
+            // 合并日志
             log.info("[afterEvent] 通知完成: itemId={}, {} → {}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
                     itemId, previousState, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
 
@@ -175,21 +170,13 @@ public class WorkflowNotifyService {
     /**
      * 格式化消息内容
      *
-     * 使用固定模板格式：
-     * 【{trackertype}】
-     * {trackertype}名称: {item_name}
-     * {trackertype}状态: {status_name}，请您处理
-     * {notify_field_name}: {notify_display_names}
-     * {extra_fields}                  ← 动态插入（如果配置了）
-     * {trackertype}链接: {item_url}
-     *
      * @param itemInfo 条目详情
      * @param targetState 目标状态
      * @param notifyField 通知字段名称
      * @param members 通知成员列表
      * @param trackerType tracker类型名称
      * @param projectId 项目ID
-     * @param trackerId tracker ID（用于查找tracker级extra-fields）
+     * @param trackerId tracker ID
      * @return 格式化后的消息内容
      */
     private String formatMessage(ItemInfoResponse itemInfo, String targetState,
@@ -198,39 +185,50 @@ public class WorkflowNotifyService {
         // 1. 获取 type-mapping
         String trackerTypeDisplay = workflowConfigService.getTypeMapping(trackerType, projectId);
 
-        // 2. 获取通知成员显示名列表
+        // 2. 获取字段名称映射（从 tracker schema API）
+        Map<String, String> fieldNameMapping = cbSwaggerService.getTrackerFieldNameMapping(trackerId);
+        // 获取 notifyField 的显示名称
+        String notifyFieldDisplayName = fieldNameMapping.getOrDefault(notifyField, notifyField);
+
+        // 3. 获取通知成员显示名列表
         String notifyMembersStr = members.stream()
-                .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
+                .map(m -> {
+                    String userId = m.getUserId();
+                    if (userId != null && !userId.isEmpty()) {
+                        String realName = dingService.getUserInfo(userId);
+                        if (realName != null && !realName.isEmpty()) {
+                            return realName;
+                        }
+                    }
+                    return m.getDisplayName() != null ? m.getDisplayName() : m.getName();
+                })
                 .collect(Collectors.joining(","));
 
-        // 3. 获取 extra-fields 值（支持 tracker 级配置）
+        // 4. 获取 extra-fields 值
         List<ExtraField> extraFields = workflowConfigService.getExtraFields(projectId, trackerId);
         StringBuilder extraFieldsContent = new StringBuilder();
         for (ExtraField extraField : extraFields) {
-            String fieldValue = getExtraFieldValue(itemInfo, extraField.getField());
+            String fieldValue = getExtraFieldValue(itemInfo, extraField.getField(), fieldNameMapping);
             if (fieldValue != null && !fieldValue.isEmpty()) {
                 extraFieldsContent.append(extraField.getLabel())
                         .append(": ")
                         .append(fieldValue)
                         .append("\n");
-            } else {
-                    // 找不到字段值，降低日志级别
-                    log.debug("extra-field字段未找到或值为空: itemId={}, fieldName={}", itemInfo.getId(), extraField.getField());
-                }
+            }
         }
 
-        // 4. 构建固定模板消息
+        // 5. 构建消息
         StringBuilder message = new StringBuilder();
         message.append(trackerTypeDisplay).append("名称: ").append(itemInfo.getName() != null ? itemInfo.getName() : "").append("\n");
         message.append(trackerTypeDisplay).append("状态: ").append(targetState != null ? targetState : "").append("，请您处理\n");
-        message.append(notifyField).append(": ").append(notifyMembersStr).append("\n");
+        message.append(notifyFieldDisplayName).append(": ").append(notifyMembersStr).append("\n");
 
-        // 5. 插入 extra-fields（在链接行之前）
+        // 6. 插入 extra-fields
         if (extraFieldsContent.length() > 0) {
             message.append(extraFieldsContent);
         }
 
-        // 6. 添加链接行
+        // 7. 添加链接行
         message.append(trackerTypeDisplay).append("链接: ").append(itemInfo.getItemLink() != null ? itemInfo.getItemLink() : "");
 
         return message.toString();
@@ -239,76 +237,61 @@ public class WorkflowNotifyService {
     /**
      * 获取额外字段值
      *
-     * 从条目详情中获取指定字段的值。
-     * 支持：
-     * - CodeBeamer默认字段（priority、categories、severities等）
-     * - 自定义字段中的成员类型字段（values）：显示名称列表
-     * - 自定义字段中的文本/日期/选择类型字段（value）：直接显示值
-     *
      * @param itemInfo 条目详情
      * @param fieldName 字段名称
+     * @param fieldNameMapping 字段名称映射
      * @return 字段值，未找到返回null
      */
-    private String getExtraFieldValue(ItemInfoResponse itemInfo, String fieldName) {
+    private String getExtraFieldValue(ItemInfoResponse itemInfo, String fieldName, Map<String, String> fieldNameMapping) {
         if (itemInfo == null || fieldName == null) {
             return null;
         }
 
         // 1. 先检查CodeBeamer默认字段
-        // priority（单个选项）
         if ("priority".equals(fieldName) && itemInfo.getPriority() != null) {
             return itemInfo.getPriority().getName();
         }
 
-        // categories（列表）
         if ("categories".equals(fieldName) && itemInfo.getCategories() != null && !itemInfo.getCategories().isEmpty()) {
             return itemInfo.getCategories().stream()
                     .map(ItemInfoResponse.ChoiceOption::getName)
                     .collect(Collectors.joining(","));
         }
 
-        // severities（列表）
         if ("severities".equals(fieldName) && itemInfo.getSeverities() != null && !itemInfo.getSeverities().isEmpty()) {
             return itemInfo.getSeverities().stream()
                     .map(ItemInfoResponse.ChoiceOption::getName)
                     .collect(Collectors.joining(","));
         }
 
-        // teams（列表）
         if ("teams".equals(fieldName) && itemInfo.getTeams() != null && !itemInfo.getTeams().isEmpty()) {
             return itemInfo.getTeams().stream()
                     .map(ItemInfoResponse.ChoiceOption::getName)
                     .collect(Collectors.joining(","));
         }
 
-        // versions（列表）
         if ("versions".equals(fieldName) && itemInfo.getVersions() != null && !itemInfo.getVersions().isEmpty()) {
             return itemInfo.getVersions().stream()
                     .map(ItemInfoResponse.ChoiceOption::getName)
                     .collect(Collectors.joining(","));
         }
 
-        // status
         if ("status".equals(fieldName)) {
             return itemInfo.getStatus();
         }
 
-        // 2. 查找自定义字段
+        // 2. 查找自定义字段（优先使用显示名称匹配）
         if (itemInfo.getCustomFields() != null) {
+            // 先用映射后的显示名称匹配
+            String fieldDisplayName = fieldNameMapping.getOrDefault(fieldName, fieldName);
             for (ItemInfoResponse.CustomField field : itemInfo.getCustomFields()) {
-                if (field.getName().equals(fieldName) ||
-                        (field.getLabel() != null && field.getLabel().equals(fieldName))) {
-                    // 成员类型字段（values）
-                    if (field.getValues() != null && !field.getValues().isEmpty()) {
-                        return field.getValues().stream()
-                                .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getName())
-                                .collect(Collectors.joining(","));
-                    }
-                    // 文本/日期/选择类型字段（value）
-                    if (field.getValue() != null && !field.getValue().isEmpty()) {
-                        return field.getValue();
-                    }
-                    return null;
+                // 匹配 label（显示名称）
+                if (field.getLabel() != null && field.getLabel().equals(fieldDisplayName)) {
+                    return extractFieldValue(field);
+                }
+                // 匹配 name（字段名）
+                if (field.getName().equals(fieldName)) {
+                    return extractFieldValue(field);
                 }
             }
         }
@@ -318,14 +301,22 @@ public class WorkflowNotifyService {
     }
 
     /**
+     * 提取字段值
+     */
+    private String extractFieldValue(ItemInfoResponse.CustomField field) {
+        if (field.getValues() != null && !field.getValues().isEmpty()) {
+            return field.getValues().stream()
+                    .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getName())
+                    .collect(Collectors.joining(","));
+        }
+        if (field.getValue() != null && !field.getValue().isEmpty()) {
+            return field.getValue();
+        }
+        return null;
+    }
+
+    /**
      * 保存条目状态记录
-     *
-     * @param itemId 条目ID
-     * @param itemName 条目名称
-     * @param trackerId tracker ID
-     * @param trackerType tracker 类型名称（如 Bug、Requirement）
-     * @param projectId 项目ID
-     * @param targetState 目标状态
      */
     private void saveItemStateRecord(Integer itemId, String itemName,
                                       Integer trackerId, String trackerType, Integer projectId, String targetState) {
@@ -345,20 +336,15 @@ public class WorkflowNotifyService {
 
     /**
      * 保存通知发送日志
-     *
-     * @param itemId 条目ID
-     * @param userid 接收者userid
-     * @param notifyType 通知类型
-     * @param sendResult 发送结果
      */
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {
-        NotifyLog log = new NotifyLog();
-        log.setItemId(itemId);
-        log.setSendTime(LocalDateTime.now());
-        log.setReceiverUserid(userid);
-        log.setNotifyType(notifyType);
-        log.setSendResult(sendResult);
+        NotifyLog logEntry = new NotifyLog();
+        logEntry.setItemId(itemId);
+        logEntry.setSendTime(LocalDateTime.now());
+        logEntry.setReceiverUserid(userid);
+        logEntry.setNotifyType(notifyType);
+        logEntry.setSendResult(sendResult);
 
-        notifyLogMapper.insert(log);
+        notifyLogMapper.insert(logEntry);
     }
 }

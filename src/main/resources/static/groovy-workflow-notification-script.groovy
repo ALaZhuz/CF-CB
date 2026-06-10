@@ -60,11 +60,46 @@ List<String> getMemberUserIds(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 内置字段：submitter
+        // 内置字段：supervisors（TrackerItemDto有getSupervisors()方法）
+        else if ("supervisors".equals(fieldName)) {
+            def supervisors = trackerItem.getSupervisors()
+            logger.info("通过getSupervisors()获取: $supervisors, 类型: ${supervisors?.getClass()?.getName()}")
+            if (supervisors != null) {
+                for (member in supervisors) {
+                    logger.info("成员对象: $member, 类型: ${member?.getClass()?.getName()}")
+                    // 成员可能是UserDto或Map类型
+                    if (member instanceof UserDto) {
+                        String userName = member.getName()
+                        logger.info("UserDto userName: $userName")
+                        if (userName != null && !userName.isEmpty()) {
+                            userIds.add(userName)
+                        }
+                    } else if (member instanceof Map) {
+                        String userName = member.get("name")
+                        logger.info("Map userName: $userName")
+                        if (userName != null && !userName.isEmpty()) {
+                            userIds.add(userName)
+                        }
+                    } else {
+                        // 其他类型，尝试调用getName()方法
+                        try {
+                            String userName = member.getName()
+                            logger.info("其他类型 userName: $userName")
+                            if (userName != null && !userName.isEmpty()) {
+                                userIds.add(userName)
+                            }
+                        } catch (Exception e) {
+                            logger.warn("无法从成员对象获取用户名: ${e.message}")
+                        }
+                    }
+                }
+            }
+        }
+        // 内置字段：submitter（对应Codebeamer的createdBy）
         else if ("submitter".equals(fieldName)) {
-            def submitter = trackerItem.getSubmittedBy()
-            if (submitter != null) {
-                String userName = submitter.getName()
+            def createdBy = trackerItem.getCreatedBy()
+            if (createdBy != null) {
+                String userName = createdBy.getName()
                 if (userName != null && !userName.isEmpty()) {
                     userIds.add(userName)
                 }
@@ -149,14 +184,44 @@ List<String> getMemberNames(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 内置字段：submitter
+        // 内置字段：supervisors（TrackerItemDto有getSupervisors()方法）
+        else if ("supervisors".equals(fieldName)) {
+            def supervisors = trackerItem.getSupervisors()
+            if (supervisors != null) {
+                for (member in supervisors) {
+                    String name = null
+                    if (member instanceof UserDto) {
+                        name = member.getName()
+                        if (name == null) {
+                            String firstName = member.getFirstName()
+                            String lastName = member.getLastName()
+                            if (firstName != null || lastName != null) {
+                                name = (firstName ?: "") + " " + (lastName ?: "")
+                            }
+                        }
+                    } else if (member instanceof Map) {
+                        name = member.get("name") ?: member.get("displayName")
+                    } else {
+                        try {
+                            name = member.getName()
+                        } catch (Exception e) {
+                            logger.warn("无法从成员对象获取名称: ${e.message}")
+                        }
+                    }
+                    if (name != null && !name.trim().isEmpty()) {
+                        names.add(name.trim())
+                    }
+                }
+            }
+        }
+        // 内置字段：submitter（对应Codebeamer的createdBy）
         else if ("submitter".equals(fieldName)) {
-            def submitter = trackerItem.getSubmittedBy()
-            if (submitter != null) {
-                String name = submitter.getName()
+            def createdBy = trackerItem.getCreatedBy()
+            if (createdBy != null) {
+                String name = createdBy.getName()
                 if (name == null) {
-                    String firstName = submitter.getFirstName()
-                    String lastName = submitter.getLastName()
+                    String firstName = createdBy.getFirstName()
+                    String lastName = createdBy.getLastName()
                     if (firstName != null || lastName != null) {
                         name = (firstName ?: "") + " " + (lastName ?: "")
                     }

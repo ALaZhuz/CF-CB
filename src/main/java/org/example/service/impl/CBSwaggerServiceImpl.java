@@ -668,6 +668,19 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             itemInfo.setAssignedTo(assignedToList);
         }
 
+        // 解析owners成员列表（对应supervisors）
+        JsonNode ownersNode = body.path("owners");
+        if (ownersNode.isArray()) {
+            List<ItemInfoResponse.MemberInfo> ownersList = new ArrayList<>();
+            for (JsonNode member : ownersNode) {
+                ItemInfoResponse.MemberInfo memberInfo = parseMember(member);
+                if (memberInfo != null) {
+                    ownersList.add(memberInfo);
+                }
+            }
+            itemInfo.setOwners(ownersList);
+        }
+
         // 解析submitter
         JsonNode submitterNode = body.path("submitter");
         if (!submitterNode.isMissingNode()) {
@@ -1202,5 +1215,54 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         // 兜底：使用当前时间
         log.warn("无法确定enter_state_time, 使用当前时间, itemId={}, targetState={}", itemId, targetState);
         return LocalDateTime.now();
+    }
+
+    /**
+     * 获取Tracker的字段名称映射
+     *
+     * 调用 tracker schema API，获取 legacyRestName -> name 的映射关系。
+     * 用于消息通知中显示中文字段名称。
+     *
+     * @param trackerId tracker ID
+     * @return 字段名称映射 Map<legacyRestName, name>
+     */
+    @Override
+    public Map<String, String> getTrackerFieldNameMapping(Integer trackerId) {
+        if (trackerId == null) {
+            return new HashMap<>();
+        }
+
+        String url = baseUrl() + "/v3/trackers/" + trackerId + "/schema";
+
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    httpHelper.getAuthEntity(),
+                    JsonNode.class
+            );
+
+            JsonNode body = response.getBody();
+            if (body == null || !body.isArray()) {
+                log.warn("获取tracker schema失败: trackerId={}", trackerId);
+                return new HashMap<>();
+            }
+
+            Map<String, String> mapping = new HashMap<>();
+            for (JsonNode field : body) {
+                String legacyRestName = field.path("legacyRestName").asText(null);
+                String name = field.path("name").asText(null);
+                if (legacyRestName != null && name != null) {
+                    mapping.put(legacyRestName, name);
+                }
+            }
+
+            log.debug("获取字段名称映射: trackerId={}, mappingCount={}", trackerId, mapping.size());
+            return mapping;
+
+        } catch (Exception e) {
+            log.warn("获取tracker schema异常: trackerId={}, error={}", trackerId, e.getMessage());
+            return new HashMap<>();
+        }
     }
 }

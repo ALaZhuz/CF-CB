@@ -40,6 +40,9 @@ public class ItemInfoResponse {
     /** 指派给成员列表（assignedTo字段） */
     private List<MemberInfo> assignedTo;
 
+    /** 负责人列表（owners字段，对应supervisors） */
+    private List<MemberInfo> owners;
+
     /** 提交人信息 */
     private MemberInfo submitter;
 
@@ -182,7 +185,7 @@ public class ItemInfoResponse {
     /**
      * 根据字段名称获取成员列表（包括内置字段和自定义字段）
      *
-     * @param fieldName 字段名称，如assignedTo、submitter或自定义字段名
+     * @param fieldName 字段名称，如assignedTo、submitter、supervisors或自定义字段名
      * @return 成员列表
      */
     public List<MemberInfo> getMembersByField(String fieldName) {
@@ -195,9 +198,14 @@ public class ItemInfoResponse {
             return assignedTo;
         }
 
-        // 内置字段：submitter
-        if ("submitter".equals(fieldName) && submitter != null) {
-            return List.of(submitter);
+        // 内置字段：supervisors（映射到owners）
+        if ("supervisors".equals(fieldName) && owners != null) {
+            return owners;
+        }
+
+        // 内置字段：submitter（映射到createdBy）
+        if ("submitter".equals(fieldName) && createdBy != null) {
+            return List.of(createdBy);
         }
 
         // 内置字段：createdBy

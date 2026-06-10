@@ -509,8 +509,9 @@ public class ScheduledNotifyService {
 
         for (int i = 0; i < items.size(); i++) {
             ItemNotifyData data = items.get(i);
+            // 调用钉钉API获取用户真实姓名
             String memberNames = data.members.stream()
-                    .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
+                    .map(m -> getRealName(m))
                     .collect(Collectors.joining(","));
 
             // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
@@ -592,10 +593,26 @@ public class ScheduledNotifyService {
      */
     private String formatMemberMessage(ItemInfoResponse itemInfo, String trackerTypeDisplay,
                                         int stayDays, ItemInfoResponse.MemberInfo member) {
-        String memberName = member.getDisplayName() != null ? member.getDisplayName() : member.getName();
+        // 调用钉钉API获取用户真实姓名
+        String memberName = getRealName(member);
         // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
         return String.format("您好，以下%s未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
                 trackerTypeDisplay, trackerTypeDisplay, itemInfo.getName(), itemInfo.getStatus(), stayDays, memberName);
+    }
+
+    /**
+     * 获取成员真实姓名（调用钉钉API转换工号）
+     */
+    private String getRealName(ItemInfoResponse.MemberInfo member) {
+        String userId = member.getUserId();
+        if (userId != null && !userId.isEmpty()) {
+            String realName = dingService.getUserInfo(userId);
+            if (realName != null && !realName.isEmpty()) {
+                return realName;
+            }
+        }
+        // 兜底：使用原有显示名
+        return member.getDisplayName() != null ? member.getDisplayName() : member.getName();
     }
 
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {

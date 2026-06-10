@@ -189,4 +189,15 @@ public interface CBSwaggerService {
      */
     LocalDateTime getEnterStateTime(Integer itemId, String targetState);
 
+    /**
+     * 获取Tracker的字段名称映射
+     *
+     * 调用 tracker schema API，获取 legacyRestName -> name 的映射关系。
+     * 用于消息通知中显示中文字段名称（如 assignedTo -> 问题处理责任人）。
+     *
+     * @param trackerId tracker ID
+     * @return 字段名称映射 Map<legacyRestName, name>
+     */
+    Map<String, String> getTrackerFieldNameMapping(Integer trackerId);
+
 }

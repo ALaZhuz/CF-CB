@@ -19,13 +19,13 @@ mybatis:
     map-underscore-to-camel-case: true
 
 codebeamer:
-  base-url-prefix: https://cb-trial.hirain.com
-#  username: yangyang.zhang
-  username: 271824611524632704
-  password: yangyang.zhang
-#    base-url-prefix: https://cb-pmt.hirain.com:8443
-#    username: zhangjiamin.zhong
-#    password: zhangjiamin.zhong
+#  base-url-prefix: https://cb-trial.hirain.com
+##  username: yangyang.zhang
+#  username: 271824611524632704
+#  password: yangyang.zhang
+    base-url-prefix: https://cb-pmt.hirain.com:8443
+    username: zhangjiamin.zhong
+    password: zhangjiamin.zhong
 
   #  春风测试环境
 #  base-url-prefix: http://192.168.101.174:8080
