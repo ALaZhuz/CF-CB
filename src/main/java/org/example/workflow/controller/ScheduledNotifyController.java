@@ -30,14 +30,19 @@ public class ScheduledNotifyController {
     private final ConfigMetaService configMetaService;
 
     /**
-     * 按项目补录存量条目
+     * 按项目全量同步
+     *
+     * 实现补录 + 清理 + 状态更新：
+     * - 补录缺失条目（Codebeamer有、本地无）
+     * - 清理已删除条目的残留记录
+     * - 更新状态不一致的记录
      *
      * @param projectId 项目ID
-     * @return 补录结果
+     * @return 同步结果
      */
     @PostMapping("/supplement/{projectId}")
     public Map<String, Object> supplementProject(@PathVariable Integer projectId) {
-        log.info("收到项目补录请求: projectId={}", projectId);
+        log.info("收到项目全量同步请求: projectId={}", projectId);
 
         InitService.InitResult result = initService.supplementProject(projectId);
 
@@ -46,9 +51,11 @@ public class ScheduledNotifyController {
         response.put("projectId", projectId);
         response.put("processed", result.getProcessed());
         response.put("inserted", result.getInserted());
+        response.put("updated", result.getUpdated());
+        response.put("deleted", result.getDeleted());
         response.put("skipped", result.getSkipped());
-        response.put("message", String.format("补录完成，处理%d条，新增%d条，跳过%d条",
-                result.getProcessed(), result.getInserted(), result.getSkipped()));
+        response.put("message", String.format("同步完成，处理%d条，新增%d条，更新%d条，删除%d条，跳过%d条",
+                result.getProcessed(), result.getInserted(), result.getUpdated(), result.getDeleted(), result.getSkipped()));
 
         return response;
     }

@@ -447,13 +447,23 @@ public class InitService {
     }
 
     /**
-     * 按项目补录存量条目
+     * 按项目全量同步
+     *
+     * 实现补录 + 清理 + 状态更新：
+     * 1. 查询Codebeamer项目下所有配置了定时通知状态的条目
+     * 2. 查询本地数据库项目下所有记录
+     * 3. 对比处理：
+     *    - 条目已删除 → DELETE
+     *    - 状态不一致（新状态配置了定时通知）→ UPDATE
+     *    - 状态不一致（新状态没配置定时通知）→ DELETE
+     *    - 状态一致 → 跳过
+     * 4. 补录缺失条目
      *
      * @param projectId 项目ID
-     * @return 补录结果
+     * @return 同步结果
      */
     public InitResult supplementProject(Integer projectId) {
-        log.info("开始按项目补录: projectId={}", projectId);
+        log.info("开始项目全量同步: projectId={}", projectId);
 
         ProjectConfig projectConfig = workflowConfigService.findProjectConfig(projectId);
         if (projectConfig == null) {
@@ -461,12 +471,244 @@ public class InitService {
             return new InitResult();
         }
 
-        InitResult result = initProject(projectConfig);
+        InitResult result = new InitResult();
 
-        log.info("项目补录完成, projectId={}, 处理={}, 新增={}, 跳过={}",
-                projectId, result.getProcessed(), result.getInserted(), result.getSkipped());
+        try {
+            // Step 1: 查询Codebeamer项目下所有配置了定时通知状态的条目
+            Map<Integer, CbItemData> cbItems = collectCbItemsForProject(projectConfig);
+            Set<Integer> cbItemIds = cbItems.keySet();
+            log.info("Codebeamer查询完成: projectId={}, 条目数={}", projectId, cbItemIds.size());
+
+            // Step 2: 查询本地数据库项目下所有记录
+            List<ItemStateRecord> localRecords = itemStateRecordMapper.selectByProjectId(projectId);
+            log.info("本地记录查询完成: projectId={}, 记录数={}", projectId, localRecords.size());
+
+            // Step 3: 对比处理本地记录
+            for (ItemStateRecord record : localRecords) {
+                result.processed++;
+                Integer itemId = record.getItemId();
+
+                // 3.1 条目已删除
+                if (!cbItemIds.contains(itemId)) {
+                    itemStateRecordMapper.deleteByItemId(itemId);
+                    result.deleted++;
+                    log.info("清理已删除条目: itemId={}, trackerId={}, state={}",
+                            itemId, record.getTrackerId(), record.getTargetState());
+                    continue;
+                }
+
+                // 3.2 状态检查
+                CbItemData cbItem = cbItems.get(itemId);
+                String actualStatus = cbItem.status;
+                String localState = record.getTargetState();
+
+                if (!actualStatus.equals(localState)) {
+                    // 状态不一致，检查新状态是否配置了定时通知
+                    WorkflowTemplate workflow = workflowConfigService.getWorkflowForTracker(
+                            cbItem.trackerId, cbItem.trackerType, projectId);
+
+                    if (workflow == null) {
+                        // 无法获取工作流配置，跳过处理
+                        result.skipped++;
+                        log.warn("状态不一致但无法获取工作流配置，跳过: itemId={}, 本地={}, 实际={}",
+                                itemId, localState, actualStatus);
+                        continue;
+                    }
+
+                    WorkflowTemplate.StateConfig stateConfig =
+                            workflowConfigService.getStateConfig(workflow, actualStatus);
+                    boolean newStateHasScheduledNotify = workflowConfigService.getScheduledNotify(stateConfig);
+
+                    if (newStateHasScheduledNotify) {
+                        // 新状态配置了定时通知 → UPDATE
+                        try {
+                            LocalDateTime enterStateTime = cbSwaggerService.getEnterStateTime(itemId, actualStatus);
+                            itemStateRecordMapper.updateState(itemId, actualStatus, enterStateTime);
+                            result.updated++;
+                            log.info("状态不一致，更新记录: itemId={}, {} → {}, enterTime={}",
+                                    itemId, localState, actualStatus, enterStateTime);
+
+                            // 延迟避免history API限流
+                            Thread.sleep(1500);
+                        } catch (InterruptedException e) {
+                            log.warn("延迟等待被中断");
+                            Thread.currentThread().interrupt();
+                        } catch (Exception e) {
+                            log.error("更新状态失败: itemId={}, error={}", itemId, e.getMessage());
+                            result.skipped++;
+                        }
+                    } else {
+                        // 新状态没配置定时通知 → DELETE
+                        itemStateRecordMapper.deleteByItemId(itemId);
+                        result.deleted++;
+                        log.info("状态不一致且新状态无定时通知，删除记录: itemId={}, {} → {}",
+                                itemId, localState, actualStatus);
+                    }
+                    continue;
+                }
+
+                // 3.3 状态一致 → 跳过
+                result.skipped++;
+            }
+
+            // Step 4: 补录缺失条目（本地没有的记录）
+            for (Map.Entry<Integer, CbItemData> entry : cbItems.entrySet()) {
+                Integer itemId = entry.getKey();
+                CbItemData cbItem = entry.getValue();
+
+                // 检查本地是否已有记录
+                ItemStateRecord existingRecord = itemStateRecordMapper.selectByItemId(itemId);
+                if (existingRecord != null) {
+                    continue;  // 已存在，跳过
+                }
+
+                try {
+                    // 获取进入状态时间
+                    LocalDateTime enterStateTime = cbSwaggerService.getEnterStateTime(itemId, cbItem.status);
+
+                    // 写入记录
+                    ItemStateRecord record = new ItemStateRecord();
+                    record.setItemId(itemId);
+                    record.setItemName(cbItem.itemName);
+                    record.setTrackerId(cbItem.trackerId);
+                    record.setTrackerType(cbItem.trackerType);
+                    record.setProjectId(projectId);
+                    record.setTargetState(cbItem.status);
+                    record.setEnterStateTime(enterStateTime);
+
+                    itemStateRecordMapper.insert(record);
+                    result.inserted++;
+                    log.info("补录缺失条目: itemId={}, trackerId={}, state={}",
+                            itemId, cbItem.trackerId, cbItem.status);
+
+                    // 延迟避免history API限流
+                    Thread.sleep(1500);
+                } catch (InterruptedException e) {
+                    log.warn("延迟等待被中断");
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("补录条目失败: itemId={}, error={}", itemId, e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("项目全量同步失败: projectId={}, error={}", projectId, e.getMessage(), e);
+        }
+
+        log.info("项目全量同步完成: projectId={}, processed={}, inserted={}, updated={}, deleted={}, skipped={}",
+                projectId, result.getProcessed(), result.getInserted(),
+                result.getUpdated(), result.getDeleted(), result.getSkipped());
 
         return result;
+    }
+
+    /**
+     * 收集Codebeamer项目下所有配置了定时通知状态的条目
+     *
+     * @param projectConfig 项目配置
+     * @return 条目ID -> 条目数据的映射
+     */
+    private Map<Integer, CbItemData> collectCbItemsForProject(ProjectConfig projectConfig) throws InterruptedException {
+        Map<Integer, CbItemData> result = new HashMap<>();
+        Integer projectId = projectConfig.getProjectId();
+
+        // 收集需要处理的 tracker 及其 workflow
+        Map<Integer, String> trackerWorkflowMap = new HashMap<>();
+
+        // 1. 从 tracker-matching 收集
+        if (projectConfig.getTrackerMatching() != null) {
+            for (TrackerMatchingRule rule : projectConfig.getTrackerMatching()) {
+                if (rule.getWorkflow() == null) {
+                    continue;
+                }
+
+                if (rule.getTrackerId() != null) {
+                    trackerWorkflowMap.put(rule.getTrackerId(), rule.getWorkflow());
+                } else if (rule.getTrackerType() != null && !rule.getTrackerType().isEmpty()) {
+                    Map<Integer, String> typeMatchedTrackers = findTrackersByType(projectId, rule.getTrackerType());
+                    for (Map.Entry<Integer, String> entry : typeMatchedTrackers.entrySet()) {
+                        if (!trackerWorkflowMap.containsKey(entry.getKey())) {
+                            trackerWorkflowMap.put(entry.getKey(), rule.getWorkflow());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 从 trackers 收集（覆盖配置）
+        if (projectConfig.getTrackers() != null) {
+            for (ProjectConfig.TrackerConfig trackerConfig : projectConfig.getTrackers()) {
+                Integer trackerId = trackerConfig.getTrackerId();
+                if (trackerId != null && trackerConfig.getWorkflow() != null) {
+                    trackerWorkflowMap.put(trackerId, trackerConfig.getWorkflow());
+                }
+            }
+        }
+
+        // 3. 遍历每个tracker，查询配置了定时通知的状态下的条目
+        for (Map.Entry<Integer, String> entry : trackerWorkflowMap.entrySet()) {
+            Integer trackerId = entry.getKey();
+            String workflowName = entry.getValue();
+
+            WorkflowTemplate workflow = workflowConfigService.findWorkflowByName(workflowName,
+                    workflowConfigService.findProjectConfig(projectId));
+
+            if (workflow == null) {
+                log.warn("工作流配置不存在: trackerId={}, workflow={}", trackerId, workflowName);
+                continue;
+            }
+
+            // 获取 trackerType
+            String trackerType = null;
+            try {
+                CBTrackerInfoResponse trackerInfo = getTrackerInfoWithRetry(trackerId);
+                if (trackerInfo != null && trackerInfo.getType() != null) {
+                    trackerType = trackerInfo.getType().getName();
+                }
+            } catch (Exception e) {
+                log.warn("获取tracker类型失败: trackerId={}, error={}", trackerId, e.getMessage());
+            }
+
+            // 遍历配置了定时通知的状态
+            for (WorkflowTemplate.StateConfig stateConfig : workflow.getStates()) {
+                if (!workflowConfigService.getScheduledNotify(stateConfig)) {
+                    continue;
+                }
+
+                String targetState = stateConfig.getName();
+                List<TrackerItem> items = fetchItemsByTrackerAndState(trackerId, targetState);
+
+                // 收集条目数据
+                for (TrackerItem item : items) {
+                    CbItemData data = new CbItemData();
+                    data.itemId = item.getId();
+                    data.itemName = item.getName();
+                    data.trackerId = trackerId;
+                    data.trackerType = trackerType;
+                    data.status = targetState;
+
+                    result.put(item.getId(), data);
+                }
+
+                // 延迟避免API限流
+                Thread.sleep(1500);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Codebeamer条目数据类
+     *
+     * 用于存储从Codebeamer查询到的条目信息，供全量同步对比使用。
+     */
+    private static class CbItemData {
+        Integer itemId;
+        String itemName;
+        Integer trackerId;
+        String trackerType;
+        String status;
     }
 
     /**
@@ -480,19 +722,39 @@ public class InitService {
 
     /**
      * 初始化结果统计类
+     *
+     * 用于全量同步的结果统计：
+     * - processed: 处理的本地记录总数
+     * - inserted: 新增的记录数（补录）
+     * - updated: 更新的记录数（状态不一致）
+     * - deleted: 删除的记录数（已删除条目或状态不一致且无定时通知）
+     * - skipped: 跳过的记录数（状态一致）
      */
     public static class InitResult {
         private int processed = 0;
         private int inserted = 0;
+        private int updated = 0;
+        private int deleted = 0;
         private int skipped = 0;
 
         public int getProcessed() { return processed; }
         public int getInserted() { return inserted; }
+        public int getUpdated() { return updated; }
+        public int getDeleted() { return deleted; }
         public int getSkipped() { return skipped; }
+
+        // Setter方法（供测试使用）
+        public void setProcessed(int processed) { this.processed = processed; }
+        public void setInserted(int inserted) { this.inserted = inserted; }
+        public void setUpdated(int updated) { this.updated = updated; }
+        public void setDeleted(int deleted) { this.deleted = deleted; }
+        public void setSkipped(int skipped) { this.skipped = skipped; }
 
         public void add(InitResult other) {
             this.processed += other.processed;
             this.inserted += other.inserted;
+            this.updated += other.updated;
+            this.deleted += other.deleted;
             this.skipped += other.skipped;
         }
     }

@@ -71,4 +71,42 @@ public interface ItemStateRecordMapper {
      */
     @Update("UPDATE item_state_record SET last_notify_time = #{lastNotifyTime} WHERE item_id = #{itemId}")
     void updateLastNotifyTime(@Param("itemId") Integer itemId, @Param("lastNotifyTime") LocalDateTime lastNotifyTime);
+
+    /**
+     * 查询项目下所有条目状态记录
+     *
+     * 用于全量同步时获取本地数据库中该项目的所有记录，
+     * 与Codebeamer查询结果进行对比。
+     *
+     * @param projectId 项目ID
+     * @return 项目下所有条目状态记录列表
+     */
+    @Select("SELECT * FROM item_state_record WHERE project_id = #{projectId}")
+    List<ItemStateRecord> selectByProjectId(@Param("projectId") Integer projectId);
+
+    /**
+     * 更新条目的目标状态和进入时间
+     *
+     * 用于全量同步时处理状态不一致场景：
+     * 当本地记录的状态与Codebeamer实际状态不一致，
+     * 且新状态配置了定时通知时，更新本地记录。
+     *
+     * @param itemId 条目ID
+     * @param targetState 新的目标状态
+     * @param enterStateTime 进入新状态的时间（从history API获取）
+     */
+    @Update("UPDATE item_state_record SET target_state = #{targetState}, enter_state_time = #{enterStateTime} WHERE item_id = #{itemId}")
+    void updateState(@Param("itemId") Integer itemId, @Param("targetState") String targetState, @Param("enterStateTime") LocalDateTime enterStateTime);
+
+    /**
+     * 更新条目名称
+     *
+     * 用于定时通知时同步最新的条目名称到数据库。
+     * 当条目在同一个状态下名称被修改时，需要更新数据库中的记录。
+     *
+     * @param itemId 条目ID
+     * @param itemName 新的条目名称
+     */
+    @Update("UPDATE item_state_record SET item_name = #{itemName} WHERE item_id = #{itemId}")
+    void updateItemName(@Param("itemId") Integer itemId, @Param("itemName") String itemName);
 }

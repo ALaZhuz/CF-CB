@@ -54,6 +54,12 @@ public class WorkflowNotifyService {
     /**
      * 执行afterEvent通知处理
      *
+     * 简化逻辑：只看目标状态（targetState）
+     * - targetState不需要通知 → 删除数据库记录
+     * - targetState需要通知 → 发送通知 + 创建/更新数据库记录
+     *
+     * enter_state_time 始终设置为进入当前状态的时间（INSERT OR REPLACE 会更新）
+     *
      * @param request 通知请求
      * @return 通知响应
      */
@@ -62,7 +68,6 @@ public class WorkflowNotifyService {
         response.setSuccess(false);
 
         Integer itemId = request.getItemId();
-        String previousState = request.getPreviousState();
         String targetState = request.getTargetState();
 
         try {
@@ -88,30 +93,20 @@ public class WorkflowNotifyService {
                 return response;
             }
 
-            // 3. 判断状态转换情况
-            WorkflowTemplate.StateConfig previousStateConfig = workflowConfigService.getStateConfig(workflow, previousState);
-            boolean previousStateNeedsNotify = workflowConfigService.shouldNotify(previousStateConfig);
-
+            // 3. 判断目标状态是否需要通知（简化逻辑，不看previousState）
             WorkflowTemplate.StateConfig targetStateConfig = workflowConfigService.getStateConfig(workflow, targetState);
             boolean targetStateNeedsNotify = workflowConfigService.shouldNotify(targetStateConfig);
 
-            // 4. 离开通知状态 → 删除记录
-            if (previousStateNeedsNotify && !targetStateNeedsNotify) {
+            // 4. 目标状态不需要通知 → 删除记录
+            if (!targetStateNeedsNotify) {
                 itemStateRecordMapper.deleteByItemId(itemId);
-                log.info("[afterEvent] 离开通知状态: itemId={}, {} → {}", itemId, previousState, targetState);
+                log.info("[afterEvent] 目标状态不需要通知，删除记录: itemId={}, targetState={}", itemId, targetState);
                 response.setSuccess(true);
                 response.setActionType("离开状态");
                 return response;
             }
 
-            // 5. 目标状态不需要通知
-            if (!targetStateNeedsNotify) {
-                response.setSuccess(true);
-                response.setActionType("无需处理");
-                return response;
-            }
-
-            // 6. 进入通知状态 → 发送通知
+            // 5. 目标状态需要通知 → 获取通知成员
             String notifyField = targetStateConfig.getNotifyField();
             List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
 
@@ -122,10 +117,10 @@ public class WorkflowNotifyService {
                 return response;
             }
 
-            // 7. 格式化消息
+            // 6. 格式化消息
             String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId, trackerId);
 
-            // 8. 发送通知
+            // 7. 发送通知
             List<String> notifiedUsers = new ArrayList<>();
             List<String> failedUsers = new ArrayList<>();
 
@@ -146,18 +141,18 @@ public class WorkflowNotifyService {
                 }
             }
 
-            // 9. 持久化状态记录
+            // 8. 持久化状态记录（INSERT OR REPLACE，enter_state_time 会更新为当前时间）
             saveItemStateRecord(itemId, itemInfo.getName(), trackerId, trackerType, projectId, targetState);
 
-            // 10. 返回响应
+            // 9. 返回响应
             response.setSuccess(true);
             response.setNotifiedUsers(notifiedUsers);
             response.setFailedUsers(failedUsers);
             response.setActionType("进入状态");
 
             // 合并日志
-            log.info("[afterEvent] 通知完成: itemId={}, {} → {}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
-                    itemId, previousState, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
+            log.info("[afterEvent] 通知完成: itemId={}, targetState={}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
+                    itemId, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
 
         } catch (Exception e) {
             log.error("[afterEvent] 处理异常: itemId={}, error={}", itemId, e.getMessage(), e);

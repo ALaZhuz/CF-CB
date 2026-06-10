@@ -398,24 +398,14 @@ if (targetState == null) {
     return;
 }
 
-// 获取转换前状态
-String previousState = null
+logger.info("开始afterEvent通知: itemId=$itemId, targetState=$targetState")
 
-// 尝试从binding获取previousStatus
-if (binding.hasVariable("previousStatus")) {
-    def previousStatusObj = binding.getVariable("previousStatus")
-    previousState = previousStatusObj?.getName()
-}
-
-logger.info("开始afterEvent通知: itemId=$itemId, previousState=$previousState, targetState=$targetState")
-
-// 异步执行通知（只传必要信息：itemId、previousState、targetState）
+// 异步执行通知（只传必要信息：itemId、targetState）
 Thread.start {
     try {
         def requestBody = """
         {
             "itemId": $itemId,
-            "previousState": "${previousState ?: ''}",
             "targetState": "$targetState"
         }
         """
