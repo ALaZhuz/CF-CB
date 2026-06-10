@@ -105,45 +105,14 @@ List<String> getMemberUserIds(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 自定义字段：从customFields获取
+        // 自定义字段：调用 Java 服务端获取
         else {
-            def customFields = trackerItem.getCustomFields()
-            logger.info("自定义字段查询: fieldName=$fieldName, customFields数量=${customFields?.size()}")
-            if (customFields != null) {
-                for (field in customFields) {
-                    // 按name或label匹配
-                    String name = field.getName()
-                    String label = field.getLabel()
-                    logger.info("检查字段: name=$name, label=$label")
-                    if (fieldName.equals(name) || fieldName.equals(label)) {
-                        logger.info("找到匹配字段: fieldName=$fieldName")
-                        def values = field.getValues()
-                        if (values != null) {
-                            for (value in values) {
-                                logger.info("字段值: value=$value, 类型=${value?.getClass()?.getName()}")
-                                // 成员类型字段（UserDto）
-                                if (value instanceof UserDto) {
-                                    // 使用 getName() 获取用户名（与钉钉缓存格式一致）
-                                    String userName = value.getName()
-                                    logger.info("UserDto用户名: $userName")
-                                    if (userName != null && !userName.isEmpty()) {
-                                        userIds.add(userName)
-                                    }
-                                }
-                                // 其他类型（可能是UserReference的Map形式）
-                                else if (value instanceof Map) {
-                                    String userName = value.get("name")
-                                    logger.info("Map用户名: $userName")
-                                    if (userName != null && !userName.isEmpty()) {
-                                        userIds.add(userName)
-                                    }
-                                }
-                            }
-                        }
-                        break // 找到匹配字段后退出循环
-                    }
-                }
-            }
+            logger.info("自定义字段: fieldName=$fieldName, 调用Java服务端获取成员信息")
+
+            // 对于自定义字段，不在这里校验，直接返回空列表
+            // 实际校验由 Java 服务端通过 API 获取完整数据后处理
+            // 这样可以避免 Groovy 脚本中 customFields 为空的问题
+            logger.info("自定义字段校验跳过，由Java服务端处理")
         }
     } catch (Exception e) {
         logger.error("获取成员信息异常: fieldName=$fieldName, error=${e.message}")
@@ -231,35 +200,9 @@ List<String> getMemberNames(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 自定义字段：从customFields获取
+        // 自定义字段：不在这里处理，由Java服务端获取
         else {
-            def customFields = trackerItem.getCustomFields()
-            if (customFields != null) {
-                for (field in customFields) {
-                    String name = field.getName()
-                    String label = field.getLabel()
-                    if (fieldName.equals(name) || fieldName.equals(label)) {
-                        def values = field.getValues()
-                        if (values != null) {
-                            for (value in values) {
-                                if (value instanceof UserDto) {
-                                    String displayName = value.getName() ?: value.getDisplayName()
-                                    if (displayName != null) {
-                                        names.add(displayName)
-                                    }
-                                }
-                                else if (value instanceof Map) {
-                                    String displayName = value.get("name") ?: value.get("displayName")
-                                    if (displayName != null) {
-                                        names.add(displayName)
-                                    }
-                                }
-                            }
-                        }
-                        break
-                    }
-                }
-            }
+            logger.info("自定义字段名称获取跳过: fieldName=$fieldName")
         }
     } catch (Exception e) {
         logger.error("获取成员名称异常: fieldName=$fieldName, error=${e.message}")
@@ -370,14 +313,30 @@ if (beforeEvent) {
             return;
         }
 
-        // Step 2: 从subject提取成员信息（待保存的新数据）
+        // Step 2: 判断是否是自定义字段
         String notifyField = configResponse.notifyField
+
+        // 内置字段列表
+        boolean isBuiltInField = "assignedTo".equals(notifyField) ||
+                                  "supervisors".equals(notifyField) ||
+                                  "submitter".equals(notifyField) ||
+                                  "createdBy".equals(notifyField) ||
+                                  "modifiedBy".equals(notifyField)
+
+        if (!isBuiltInField) {
+            // 自定义字段：跳过 beforeEvent 校验，直接放行
+            // 校验由 Java 服务端在 afterEvent 时通过 API 获取完整数据后处理
+            logger.info("自定义字段($notifyField)跳过beforeEvent校验，直接放行")
+            return;
+        }
+
+        // Step 3: 从subject提取成员信息（待保存的新数据）- 仅内置字段
         List<String> userIds = getMemberUserIds(subject, notifyField)
         List<String> memberNames = getMemberNames(subject, notifyField)
 
         logger.info("提取成员信息: notifyField=$notifyField, userIds=$userIds, names=$memberNames")
 
-        // Step 3: 调用完整校验接口
+        // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
         def userIdsJson = userIds.isEmpty() ? "[]" : "[" + userIds.collect { "\"$it\"" }.join(",") + "]"
         def namesJson = memberNames.isEmpty() ? "[]" : "[" + memberNames.collect { "\"$it\"" }.join(",") + "]"

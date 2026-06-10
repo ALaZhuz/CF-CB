@@ -372,7 +372,8 @@ public class ScheduledNotifyService {
                 String message = formatMemberMessage(data.itemInfo, data.trackerTypeDisplay, data.stayDays, member);
 
                 try {
-                    dingService.sendTextMessage(userid, message);
+                    // 使用 markdown 消息类型，支持链接点击
+                    dingService.sendMessage(userid, "定时通知提醒", message);
                     log.info("成员通知发送成功: itemId={}, userid={}, 消息内容=\n{}", data.itemId, userid, message);
                     saveNotifyLog(data.itemId, userid, "定时成员", "成功");
                     count++;
@@ -426,7 +427,8 @@ public class ScheduledNotifyService {
 
             String message = formatCrossItemAggregatedMessage(items, "科长");
             try {
-                dingService.sendTextMessage(managerId, message);
+                // 使用 markdown 消息类型，支持链接点击
+                dingService.sendMessage(managerId, "定时通知提醒", message);
                 log.info("科长聚合通知发送成功: managerId={}, 条目数={}, 消息内容=\n{}", managerId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, managerId, "定时科长", "成功");
@@ -478,7 +480,8 @@ public class ScheduledNotifyService {
 
             String message = formatCrossItemAggregatedMessage(items, "部长");
             try {
-                dingService.sendTextMessage(directorId, message);
+                // 使用 markdown 消息类型，支持链接点击
+                dingService.sendMessage(directorId, "定时通知提醒", message);
                 log.info("部长聚合通知发送成功: directorId={}, 条目数={}, 消息内容=\n{}", directorId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, directorId, "定时部长", "成功");
@@ -500,6 +503,7 @@ public class ScheduledNotifyService {
      * 格式化跨条目聚合消息
      *
      * 使用 trackerTypeDisplay（如"问题"、"需求"）作为条目前缀
+     * 条目名称支持点击跳转链接
      */
     private String formatCrossItemAggregatedMessage(List<ItemNotifyData> items, String notifyLevel) {
         StringBuilder sb = new StringBuilder();
@@ -514,9 +518,16 @@ public class ScheduledNotifyService {
                     .map(m -> getRealName(m))
                     .collect(Collectors.joining(","));
 
-            // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
+            // 构建条目链接（markdown格式：[名称](链接)）
+            String itemName = data.itemInfo.getName();
+            String itemLink = data.itemInfo.getItemLink();
+            String itemNameWithLink = itemLink != null && !itemLink.isEmpty()
+                    ? "[" + itemName + "](" + itemLink + ")"
+                    : itemName;
+
+            // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称（可点击）】"
             sb.append(i + 1).append(". ")
-              .append(data.trackerTypeDisplay).append("【").append(data.itemInfo.getName()).append("】")
+              .append(data.trackerTypeDisplay).append("【").append(itemNameWithLink).append("】")
               .append("，在【").append(data.itemInfo.getStatus()).append("】状态下已【").append(data.stayDays).append("】天")
               .append("，负责人【").append(memberNames).append("】\n");
         }
@@ -590,14 +601,23 @@ public class ScheduledNotifyService {
      * 格式化成员消息
      *
      * 使用 trackerTypeDisplay（如"问题"、"需求"）作为条目前缀
+     * 条目名称支持点击跳转链接
      */
     private String formatMemberMessage(ItemInfoResponse itemInfo, String trackerTypeDisplay,
                                         int stayDays, ItemInfoResponse.MemberInfo member) {
         // 调用钉钉API获取用户真实姓名
         String memberName = getRealName(member);
-        // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
+
+        // 构建条目链接（markdown格式：[名称](链接)）
+        String itemName = itemInfo.getName();
+        String itemLink = itemInfo.getItemLink();
+        String itemNameWithLink = itemLink != null && !itemLink.isEmpty()
+                ? "[" + itemName + "](" + itemLink + ")"
+                : itemName;
+
+        // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称（可点击）】"
         return String.format("您好，以下%s未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
-                trackerTypeDisplay, trackerTypeDisplay, itemInfo.getName(), itemInfo.getStatus(), stayDays, memberName);
+                trackerTypeDisplay, trackerTypeDisplay, itemNameWithLink, itemInfo.getStatus(), stayDays, memberName);
     }
 
     /**
