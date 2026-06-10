@@ -138,8 +138,6 @@ public class ConfigMetaService {
                 return;
             }
 
-            log.info("开始重新加载YAML配置: {}", yamlPath);
-
             String yamlContent = Files.readString(yamlPath);
             LocalDateTime fileModifiedTime = getYamlFileModifiedTime();
             configMetaMapper.updateYamlContent(yamlContent, fileModifiedTime, LocalDateTime.now(), "auto-reload");
@@ -149,7 +147,7 @@ public class ConfigMetaService {
             Map<String, Object> configMap = yaml.load(new FileInputStream(yamlPath.toFile()));
             bindConfigToProperties(configMap);
 
-            log.info("YAML配置热更新完成");
+            log.info("YAML配置热更新完成: {}", yamlPath);
 
         } catch (Exception e) {
             log.error("YAML配置热更新失败: {}", e.getMessage(), e);
@@ -198,7 +196,6 @@ public class ConfigMetaService {
                     configObjectMapper.convertValue(classifyConfigMap,
                         WorkflowProperties.ClassifyConfigConfig.class);
                 workflowProperties.setClassifyConfig(classifyConfig);
-                log.debug("classify-config 已更新");
             }
 
             // 绑定 type-mappings
@@ -208,7 +205,6 @@ public class ConfigMetaService {
                     configObjectMapper.convertValue(typeMappingsMap,
                         WorkflowProperties.TypeMappingsConfig.class);
                 workflowProperties.setTypeMappings(typeMappings);
-                log.debug("type-mappings 已更新");
             }
 
             // 绑定 extra-fields
@@ -218,13 +214,11 @@ public class ConfigMetaService {
                     configObjectMapper.convertValue(extraFieldsMap,
                         WorkflowProperties.ExtraFieldsConfig.class);
                 workflowProperties.setExtraFields(extraFields);
-                log.debug("extra-fields 已更新");
             }
 
             // 绑定根级别字段
             if (configMap.containsKey("default-notify-time")) {
                 workflowProperties.setDefaultNotifyTime((String) configMap.get("default-notify-time"));
-                log.debug("default-notify-time 已更新");
             }
 
             // 绑定 dingtalk
@@ -234,18 +228,15 @@ public class ConfigMetaService {
                     configObjectMapper.convertValue(dingtalkMap,
                         WorkflowProperties.DingtalkConfig.class);
                 workflowProperties.setDingtalk(dingtalk);
-                log.debug("dingtalk 已更新");
             }
 
             // 绑定 global-workflows（列表）
             if (configMap.containsKey("global-workflows")) {
                 Object globalWorkflowsList = configMap.get("global-workflows");
-                // 对于列表，需要手动处理
                 workflowProperties.setGlobalWorkflows(
                     configObjectMapper.convertValue(globalWorkflowsList,
                         configObjectMapper.getTypeFactory().constructCollectionType(
                             java.util.ArrayList.class, WorkflowTemplate.class)));
-                log.debug("global-workflows 已更新");
             }
 
             // 绑定 projects（列表）
@@ -255,10 +246,7 @@ public class ConfigMetaService {
                     configObjectMapper.convertValue(projectsList,
                         configObjectMapper.getTypeFactory().constructCollectionType(
                             java.util.ArrayList.class, ProjectConfig.class)));
-                log.info("projects 配置已更新（支持新增/删除项目热更新）");
             }
-
-            log.info("WorkflowProperties 热更新完成");
 
         } catch (Exception e) {
             log.error("绑定配置到 WorkflowProperties 失败: {}", e.getMessage(), e);

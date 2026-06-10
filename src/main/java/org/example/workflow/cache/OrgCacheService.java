@@ -64,6 +64,8 @@ public class OrgCacheService {
      *
      * 获取Codebeamer所有用户并并发调用钉钉API获取科长/部长关系。
      * 使用线程池加速处理，避免串行执行耗时过长。
+     *
+     * 即使网络不通，也会先把 userid 写入数据库，后续网络恢复时可以补全。
      */
     private void syncOrgCache() {
         try {
@@ -77,17 +79,33 @@ public class OrgCacheService {
 
             log.info("开始同步组织架构缓存, 用户总数={}", users.size());
 
+            // 清空旧缓存
+            orgCacheMapper.deleteAll();
+
             // === 步骤1: 测试网络连通性 ===
             String accessToken = reviewService.getAccessToken();
-            if (accessToken == null || accessToken.isEmpty()) {
-                log.error("组织架构接口网络不通，无法同步组织架构缓存，请检查钉钉接口配置或网络连接");
+            boolean networkAvailable = accessToken != null && !accessToken.isEmpty();
+
+            if (!networkAvailable) {
+                log.warn("组织架构接口网络不通，先写入userid基础数据，科长/部长信息后续补全");
+                // 网络不通时，只写入 userid，不获取科长/部长
+                int count = 0;
+                for (ItemInfoResponse.MemberInfo user : users) {
+                    String userid = user.getUserId();
+                    if (userid != null && !userid.isEmpty()) {
+                        OrgCache cache = new OrgCache();
+                        cache.setUserid(userid);
+                        cache.setLastSyncTime(LocalDateTime.now());
+                        // managerUserid 和 directorUserid 为空
+                        orgCacheMapper.insert(cache);
+                        count++;
+                    }
+                }
+                log.info("组织架构缓存基础数据写入完成(网络不通模式): userid数量={}", count);
                 return;
             }
 
-            log.info("组织架构接口网络通畅，开始并发同步...");
-
-            // 清空旧缓存
-            orgCacheMapper.deleteAll();
+            log.info("组织架构接口网络通畅，开始并发同步科长/部长信息...");
 
             // === 步骤2: 并发同步所有用户 ===
             int threadPoolSize = 50;

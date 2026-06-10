@@ -97,15 +97,13 @@ public class ScheduledNotifyController {
      */
     @PostMapping("/config/reload")
     public Map<String, Object> reloadConfig() {
-        log.info("收到配置重载请求");
-
         try {
             // 真正执行配置重载
             configMetaService.reloadYamlConfig();
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("message", "配置已重新加载，yaml_content已更新");
+            response.put("message", "配置已重新加载");
             return response;
         } catch (Exception e) {
             log.error("配置重载失败: {}", e.getMessage(), e);

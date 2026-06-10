@@ -80,10 +80,10 @@ projects:
             notify-field: "assignedTo"
             scheduled-notify: true
           - name: "无效bug"
-            notify-field: ""
+            notify: false
             scheduled-notify: true
           - name: "设计如此"
-            notify-field: ""
+            notify: false
             scheduled-notify: true
           - name: "不予解决"
             notify: false
