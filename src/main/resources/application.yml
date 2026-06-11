@@ -52,13 +52,15 @@ dingtalk:
   overdue-minister-default: 3
   # 超期*天提醒总监
   overdue-director-default: 5
-  # 超期*天后每周一提醒
+  # 超期*天后一周提醒1次
   overdue-weekly: 8
+  # 超期overdue-weekly天后周几提醒
+  overdue-weekly-day: 4
   # 每天定时任务提醒，默认8点
-  notify-cron: "0 0 14 * * ?"
+  notify-cron: "0 55 10 * * ?"
   # 轮询任务，默认30分钟
 #  fixed-delay: 1800000
-  fixed-delay: 120000
+  fixed-delay: 300000
 
 server:
   port: 8081

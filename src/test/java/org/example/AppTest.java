@@ -5,6 +5,7 @@ import org.example.model.dto.request.TrackerItemRequest;
 import org.example.model.dto.response.DownstreamGroupResponse;
 import org.example.model.dto.response.TrackerItemGroupResponse;
 import org.example.scheduler.ReviewNotifyScheduler;
+import org.example.service.DingService;
 import org.example.service.TrackerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,9 @@ class AppTest {
     @Autowired
     private ReviewNotifyScheduler reviewNotifyScheduler;
 
+    @Autowired
+    private DingService dingService;
+
     @Test
     void testThirtyMinuteScheduleTask() {
         reviewNotifyScheduler.runThirtyMinuteTasks();
@@ -35,6 +39,11 @@ class AppTest {
     @Test
     void testEightOClockTask(){
         reviewNotifyScheduler.runEightOClockTasks();
+    }
+
+    @Test
+    void testDingMessageSend(){
+        dingService.sendMessage("271824611524632704", "Test Title1", "Test Markdown1");
     }
 
     @Test
