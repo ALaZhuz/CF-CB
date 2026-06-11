@@ -33,9 +33,6 @@ String baseUrl = "http://localhost:8081/workflow"
 /**
  * 从TrackerItem获取指定字段的成员userid列表
  *
- * 注意：Codebeamer的userid是指用户名（如"yangyang.zhang"），不是整数ID。
- * 钉钉用户缓存使用的是Codebeamer用户名。
- *
  * @param trackerItem 条目对象
  * @param fieldName 字段名称（如 assignedTo、submitter、自定义字段名）
  * @return userid列表（Codebeamer用户名）
@@ -63,48 +60,59 @@ List<String> getMemberUserIds(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 内置字段：submitter
+        // 内置字段：supervisors（TrackerItemDto有getSupervisors()方法）
+        else if ("supervisors".equals(fieldName)) {
+            def supervisors = trackerItem.getSupervisors()
+            logger.info("通过getSupervisors()获取: $supervisors, 类型: ${supervisors?.getClass()?.getName()}")
+            if (supervisors != null) {
+                for (member in supervisors) {
+                    logger.info("成员对象: $member, 类型: ${member?.getClass()?.getName()}")
+                    // 成员可能是UserDto或Map类型
+                    if (member instanceof UserDto) {
+                        String userName = member.getName()
+                        logger.info("UserDto userName: $userName")
+                        if (userName != null && !userName.isEmpty()) {
+                            userIds.add(userName)
+                        }
+                    } else if (member instanceof Map) {
+                        String userName = member.get("name")
+                        logger.info("Map userName: $userName")
+                        if (userName != null && !userName.isEmpty()) {
+                            userIds.add(userName)
+                        }
+                    } else {
+                        // 其他类型，尝试调用getName()方法
+                        try {
+                            String userName = member.getName()
+                            logger.info("其他类型 userName: $userName")
+                            if (userName != null && !userName.isEmpty()) {
+                                userIds.add(userName)
+                            }
+                        } catch (Exception e) {
+                            logger.warn("无法从成员对象获取用户名: ${e.message}")
+                        }
+                    }
+                }
+            }
+        }
+        // 内置字段：submitter（对应Codebeamer的createdBy）
         else if ("submitter".equals(fieldName)) {
-            def submitter = trackerItem.getSubmittedBy()
-            if (submitter != null) {
-                String userName = submitter.getName()
+            def createdBy = trackerItem.getCreatedBy()
+            if (createdBy != null) {
+                String userName = createdBy.getName()
                 if (userName != null && !userName.isEmpty()) {
                     userIds.add(userName)
                 }
             }
         }
-        // 自定义字段：从customFields获取
+        // 自定义字段：调用 Java 服务端获取
         else {
-            def customFields = trackerItem.getCustomFields()
-            if (customFields != null) {
-                for (field in customFields) {
-                    // 按name或label匹配
-                    String name = field.getName()
-                    String label = field.getLabel()
-                    if (fieldName.equals(name) || fieldName.equals(label)) {
-                        def values = field.getValues()
-                        if (values != null) {
-                            for (value in values) {
-                                // 成员类型字段（UserDto）
-                                if (value instanceof UserDto) {
-                                    String userId = value.getUserId()
-                                    if (userId != null && !userId.isEmpty()) {
-                                        userIds.add(userId)
-                                    }
-                                }
-                                // 其他类型（可能是UserReference的Map形式）
-                                else if (value instanceof Map) {
-                                    String userId = value.get("userId")
-                                    if (userId != null && !userId.isEmpty()) {
-                                        userIds.add(userId)
-                                    }
-                                }
-                            }
-                        }
-                        break // 找到匹配字段后退出循环
-                    }
-                }
-            }
+            logger.info("自定义字段: fieldName=$fieldName, 调用Java服务端获取成员信息")
+
+            // 对于自定义字段，不在这里校验，直接返回空列表
+            // 实际校验由 Java 服务端通过 API 获取完整数据后处理
+            // 这样可以避免 Groovy 脚本中 customFields 为空的问题
+            logger.info("自定义字段校验跳过，由Java服务端处理")
         }
     } catch (Exception e) {
         logger.error("获取成员信息异常: fieldName=$fieldName, error=${e.message}")
@@ -145,14 +153,44 @@ List<String> getMemberNames(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 内置字段：submitter
+        // 内置字段：supervisors（TrackerItemDto有getSupervisors()方法）
+        else if ("supervisors".equals(fieldName)) {
+            def supervisors = trackerItem.getSupervisors()
+            if (supervisors != null) {
+                for (member in supervisors) {
+                    String name = null
+                    if (member instanceof UserDto) {
+                        name = member.getName()
+                        if (name == null) {
+                            String firstName = member.getFirstName()
+                            String lastName = member.getLastName()
+                            if (firstName != null || lastName != null) {
+                                name = (firstName ?: "") + " " + (lastName ?: "")
+                            }
+                        }
+                    } else if (member instanceof Map) {
+                        name = member.get("name") ?: member.get("displayName")
+                    } else {
+                        try {
+                            name = member.getName()
+                        } catch (Exception e) {
+                            logger.warn("无法从成员对象获取名称: ${e.message}")
+                        }
+                    }
+                    if (name != null && !name.trim().isEmpty()) {
+                        names.add(name.trim())
+                    }
+                }
+            }
+        }
+        // 内置字段：submitter（对应Codebeamer的createdBy）
         else if ("submitter".equals(fieldName)) {
-            def submitter = trackerItem.getSubmittedBy()
-            if (submitter != null) {
-                String name = submitter.getName()
+            def createdBy = trackerItem.getCreatedBy()
+            if (createdBy != null) {
+                String name = createdBy.getName()
                 if (name == null) {
-                    String firstName = submitter.getFirstName()
-                    String lastName = submitter.getLastName()
+                    String firstName = createdBy.getFirstName()
+                    String lastName = createdBy.getLastName()
                     if (firstName != null || lastName != null) {
                         name = (firstName ?: "") + " " + (lastName ?: "")
                     }
@@ -162,35 +200,9 @@ List<String> getMemberNames(def trackerItem, String fieldName) {
                 }
             }
         }
-        // 自定义字段：从customFields获取
+        // 自定义字段：不在这里处理，由Java服务端获取
         else {
-            def customFields = trackerItem.getCustomFields()
-            if (customFields != null) {
-                for (field in customFields) {
-                    String name = field.getName()
-                    String label = field.getLabel()
-                    if (fieldName.equals(name) || fieldName.equals(label)) {
-                        def values = field.getValues()
-                        if (values != null) {
-                            for (value in values) {
-                                if (value instanceof UserDto) {
-                                    String displayName = value.getName() ?: value.getDisplayName()
-                                    if (displayName != null) {
-                                        names.add(displayName)
-                                    }
-                                }
-                                else if (value instanceof Map) {
-                                    String displayName = value.get("name") ?: value.get("displayName")
-                                    if (displayName != null) {
-                                        names.add(displayName)
-                                    }
-                                }
-                            }
-                        }
-                        break
-                    }
-                }
-            }
+            logger.info("自定义字段名称获取跳过: fieldName=$fieldName")
         }
     } catch (Exception e) {
         logger.error("获取成员名称异常: fieldName=$fieldName, error=${e.message}")
@@ -220,7 +232,6 @@ def sendGetRequest(String url) {
         responseText = connection.getInputStream().getText("UTF-8")
     } else {
         responseText = connection.getErrorStream()?.getText("UTF-8") ?: ""
-        logger.error("HTTP GET请求失败: code=$responseCode, body=$responseText")
         throw new Exception("HTTP请求失败: $responseCode")
     }
 
@@ -302,14 +313,30 @@ if (beforeEvent) {
             return;
         }
 
-        // Step 2: 从subject提取成员信息（待保存的新数据）
+        // Step 2: 判断是否是自定义字段
         String notifyField = configResponse.notifyField
+
+        // 内置字段列表
+        boolean isBuiltInField = "assignedTo".equals(notifyField) ||
+                                  "supervisors".equals(notifyField) ||
+                                  "submitter".equals(notifyField) ||
+                                  "createdBy".equals(notifyField) ||
+                                  "modifiedBy".equals(notifyField)
+
+        if (!isBuiltInField) {
+            // 自定义字段：跳过 beforeEvent 校验，直接放行
+            // 校验由 Java 服务端在 afterEvent 时通过 API 获取完整数据后处理
+            logger.info("自定义字段($notifyField)跳过beforeEvent校验，直接放行")
+            return;
+        }
+
+        // Step 3: 从subject提取成员信息（待保存的新数据）- 仅内置字段
         List<String> userIds = getMemberUserIds(subject, notifyField)
         List<String> memberNames = getMemberNames(subject, notifyField)
 
         logger.info("提取成员信息: notifyField=$notifyField, userIds=$userIds, names=$memberNames")
 
-        // Step 3: 调用完整校验接口
+        // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
         def userIdsJson = userIds.isEmpty() ? "[]" : "[" + userIds.collect { "\"$it\"" }.join(",") + "]"
         def namesJson = memberNames.isEmpty() ? "[]" : "[" + memberNames.collect { "\"$it\"" }.join(",") + "]"
@@ -371,24 +398,14 @@ if (targetState == null) {
     return;
 }
 
-// 获取转换前状态
-String previousState = null
+logger.info("开始afterEvent通知: itemId=$itemId, targetState=$targetState")
 
-// 尝试从binding获取previousStatus
-if (binding.hasVariable("previousStatus")) {
-    def previousStatusObj = binding.getVariable("previousStatus")
-    previousState = previousStatusObj?.getName()
-}
-
-logger.info("开始afterEvent通知: itemId=$itemId, previousState=$previousState, targetState=$targetState")
-
-// 异步执行通知（只传必要信息：itemId、previousState、targetState）
+// 异步执行通知（只传必要信息：itemId、targetState）
 Thread.start {
     try {
         def requestBody = """
         {
             "itemId": $itemId,
-            "previousState": "${previousState ?: ''}",
             "targetState": "$targetState"
         }
         """

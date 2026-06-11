@@ -67,9 +67,6 @@ public class WorkflowValidateService {
                 }
             }
 
-            log.debug("查询notifyField: trackerId={}, trackerType={}, projectId={}, targetState={}",
-                    trackerId, trackerType, projectId, targetState);
-
             // 2. 查找工作流配置
             WorkflowTemplate workflow = workflowConfigService.getWorkflowForTracker(
                     trackerId, trackerType, projectId);
@@ -93,7 +90,6 @@ public class WorkflowValidateService {
 
             // 5. 判断是否需要通知
             if (!workflowConfigService.shouldNotify(stateConfig)) {
-                // 不需要通知，返回needsNotify=false
                 response.setNeedsNotify(false);
                 response.setNotifyField(null);
                 return response;
@@ -102,9 +98,6 @@ public class WorkflowValidateService {
             // 6. 返回notifyField
             response.setNeedsNotify(true);
             response.setNotifyField(stateConfig.getNotifyField());
-
-            log.info("查询notifyField成功: trackerId={}, targetState={}, needsNotify=true, notifyField={}",
-                    trackerId, targetState, response.getNotifyField());
 
         } catch (Exception e) {
             log.error("查询notifyField异常: trackerId={}, error={}", trackerId, e.getMessage(), e);
@@ -133,9 +126,6 @@ public class WorkflowValidateService {
 
         Integer itemId = request.getItemId();
         String targetState = request.getTargetState();
-
-        log.info("开始beforeEvent校验: itemId={}, targetState={}, trackerId={}",
-                itemId, targetState, request.getTrackerId());
 
         try {
             Integer trackerId;
@@ -182,9 +172,6 @@ public class WorkflowValidateService {
                 }
             }
 
-            log.info("校验参数: trackerId={}, trackerType={}, projectId={}",
-                    trackerId, trackerType, projectId);
-
             // 2. 查找工作流配置
             WorkflowTemplate workflow = workflowConfigService.getWorkflowForTracker(
                     trackerId, trackerType, projectId);
@@ -209,7 +196,6 @@ public class WorkflowValidateService {
                 // 状态配置了notify:false或无notifyField，放行保存
                 response.setSuccess(true);
                 response.setErrorMessage(null);
-                log.info("目标状态不需要通知，放行保存: itemId={}, targetState={}", itemId, targetState);
                 return response;
             }
 
@@ -221,14 +207,11 @@ public class WorkflowValidateService {
             List<String> memberNames;
 
             // 优先使用 request 中的成员信息（Groovy脚本从subject提取的新数据）
-            // 无论是新建还是修改条目，request中的数据都是用户即将保存的新数据
             if (request.getNotifyUserIds() != null && !request.getNotifyUserIds().isEmpty()) {
-                // 使用 request 中的成员信息
                 userids = request.getNotifyUserIds();
                 memberNames = request.getNotifyMemberNames();
-                log.info("使用request中的成员信息: userIds={}, names={}", userids, memberNames);
             } else if (itemInfo != null) {
-                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取（仅修改条目）
+                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取
                 List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
                 if (members == null || members.isEmpty()) {
                     response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
@@ -241,9 +224,7 @@ public class WorkflowValidateService {
                 memberNames = members.stream()
                         .map(m -> m.getName() != null ? m.getName() : m.getUserId())
                         .collect(Collectors.toList());
-                log.info("从itemInfo获取成员信息: userIds={}, names={}", userids, memberNames);
             } else {
-                // 新建条目且request中没有成员信息，校验失败
                 response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
                 return response;
             }
@@ -253,7 +234,6 @@ public class WorkflowValidateService {
                 return response;
             }
 
-            // 记录通知成员信息
             response.setNotifyMembers(memberNames);
 
             // 7. 校验userid在钉钉中存在
@@ -269,11 +249,12 @@ public class WorkflowValidateService {
             // 8. 校验全部通过
             response.setSuccess(true);
             response.setErrorMessage(null);
-            log.info("beforeEvent校验通过: itemId={}, targetState={}, notifyField={}, members={}",
-                    itemId, targetState, notifyField, memberNames);
+            // 合并日志：一次校验只输出一条成功日志
+            log.info("[beforeEvent] 校验通过: itemId={}, trackerId={}, targetState={}, notifyField={}, members={}",
+                    itemId, trackerId, targetState, notifyField, memberNames);
 
         } catch (Exception e) {
-            log.error("beforeEvent校验异常: itemId={}, error={}", itemId, e.getMessage(), e);
+            log.error("[beforeEvent] 校验异常: itemId={}, error={}", itemId, e.getMessage(), e);
             response.setErrorMessage("校验异常: " + e.getMessage());
         }
 

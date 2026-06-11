@@ -35,14 +35,8 @@ public class WorkflowNotifyController {
      */
     @PostMapping("/notify")
     public NotifyResponse notify(@RequestBody NotifyRequest request) {
-        log.info("收到afterEvent通知请求: itemId={}, previousState={}, targetState={}",
-                request.getItemId(), request.getPreviousState(), request.getTargetState());
-
         NotifyResponse response = workflowNotifyService.notify(request);
-
-        log.info("afterEvent处理完成: actionType={}, success={}",
-                response.getActionType(), response.isSuccess());
-
+        // 日志已在Service层合并输出，Controller层不再重复输出
         return response;
     }
 }

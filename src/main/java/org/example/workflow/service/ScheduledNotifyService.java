@@ -32,6 +32,9 @@ import java.util.stream.Collectors;
  * 3. 跨条目聚合：科长/部长收到一条包含所有负责条目的消息
  * 4. 发送通知并更新记录
  *
+ * 新增功能（2026-06-10）：
+ * - 预清理任务：在定时通知前几小时执行数据同步，确保数据正确
+ *
  * @author system
  * @since 1.0
  */
@@ -49,6 +52,7 @@ public class ScheduledNotifyService {
     private final ItemStateRecordMapper itemStateRecordMapper;
     private final NotifyLogMapper notifyLogMapper;
     private final DingUserCacheService dingUserCacheService;
+    private final InitService initService;
 
     @PostConstruct
     public void validateCacheReadiness() {
@@ -114,6 +118,89 @@ public class ScheduledNotifyService {
 
     public boolean areCachesReady() {
         return orgCacheService.getCacheSize() > 0 && dingUserCacheService.getCacheSize() > 0;
+    }
+
+    /**
+     * 预清理任务调度方法
+     *
+     * 在定时通知前几小时执行数据同步，确保：
+     * 1. 清理已删除条目的残留记录
+     * 2. 更新状态不一致的记录
+     * 3. 补录缺失的条目记录
+     *
+     * 执行时间通过 default-cleanup-time 配置（如 "04:00"）
+     */
+    @Scheduled(cron = "0 0/1 * * * *")
+    public void executeCleanup() {
+        String cleanupTime = workflowConfigService.getCleanupTime();
+
+        String[] timeParts = cleanupTime.split(":");
+        if (timeParts.length != 2) {
+            log.warn("配置的cleanupTime格式错误: {}, 使用默认4点", cleanupTime);
+            timeParts = new String[]{"04", "00"};
+        }
+
+        int configuredHour = Integer.parseInt(timeParts[0]);
+        int configuredMinute = Integer.parseInt(timeParts[1]);
+
+        LocalDateTime now = LocalDateTime.now();
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+
+        if (!(currentHour == configuredHour && currentMinute == configuredMinute)) {
+            log.debug("当前时间 {}:{} 不在配置的预清理时间 {}:{}，跳过执行",
+                    currentHour, currentMinute, configuredHour, configuredMinute);
+            return;
+        }
+
+        log.info("到达配置的预清理时间 {}:{}，开始执行数据同步", configuredHour, configuredMinute);
+        log.info("========== 预清理任务启动 ==========");
+
+        if (!areCachesReady()) {
+            log.warn("缓存服务未就绪，跳过本次预清理");
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            checkAndReloadConfig();
+
+            // 遍历所有配置的项目，执行数据同步
+            List<ProjectConfig> projects = workflowConfigService.getWorkflowProperties().getProjects();
+            int totalProcessed = 0;
+            int totalInserted = 0;
+            int totalUpdated = 0;
+            int totalDeleted = 0;
+            int totalSkipped = 0;
+
+            for (ProjectConfig project : projects) {
+                try {
+                    InitService.InitResult result = initService.supplementProject(project.getProjectId());
+                    totalProcessed += result.getProcessed();
+                    totalInserted += result.getInserted();
+                    totalUpdated += result.getUpdated();
+                    totalDeleted += result.getDeleted();
+                    totalSkipped += result.getSkipped();
+
+                    // 项目之间添加延迟，避免API限流
+                    Thread.sleep(2000);
+
+                } catch (InterruptedException e) {
+                    log.warn("延迟等待被中断");
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("项目数据同步失败: projectId={}, error={}", project.getProjectId(), e.getMessage());
+                }
+            }
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("========== 预清理任务完成 ========== 处理={}, 新增={}, 更新={}, 删除={}, 跳过={}, 耗时={}ms",
+                    totalProcessed, totalInserted, totalUpdated, totalDeleted, totalSkipped, duration);
+
+        } catch (Exception e) {
+            log.error("预清理任务执行失败: {}", e.getMessage(), e);
+        }
     }
 
     /**
@@ -372,7 +459,8 @@ public class ScheduledNotifyService {
                 String message = formatMemberMessage(data.itemInfo, data.trackerTypeDisplay, data.stayDays, member);
 
                 try {
-                    dingService.sendTextMessage(userid, message);
+                    // 使用 markdown 消息类型，支持链接点击
+                    dingService.sendMessage(userid, "定时通知提醒", message);
                     log.info("成员通知发送成功: itemId={}, userid={}, 消息内容=\n{}", data.itemId, userid, message);
                     saveNotifyLog(data.itemId, userid, "定时成员", "成功");
                     count++;
@@ -426,7 +514,8 @@ public class ScheduledNotifyService {
 
             String message = formatCrossItemAggregatedMessage(items, "科长");
             try {
-                dingService.sendTextMessage(managerId, message);
+                // 使用 markdown 消息类型，支持链接点击
+                dingService.sendMessage(managerId, "定时通知提醒", message);
                 log.info("科长聚合通知发送成功: managerId={}, 条目数={}, 消息内容=\n{}", managerId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, managerId, "定时科长", "成功");
@@ -478,7 +567,8 @@ public class ScheduledNotifyService {
 
             String message = formatCrossItemAggregatedMessage(items, "部长");
             try {
-                dingService.sendTextMessage(directorId, message);
+                // 使用 markdown 消息类型，支持链接点击
+                dingService.sendMessage(directorId, "定时通知提醒", message);
                 log.info("部长聚合通知发送成功: directorId={}, 条目数={}, 消息内容=\n{}", directorId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, directorId, "定时部长", "成功");
@@ -500,6 +590,7 @@ public class ScheduledNotifyService {
      * 格式化跨条目聚合消息
      *
      * 使用 trackerTypeDisplay（如"问题"、"需求"）作为条目前缀
+     * 条目名称支持点击跳转链接
      */
     private String formatCrossItemAggregatedMessage(List<ItemNotifyData> items, String notifyLevel) {
         StringBuilder sb = new StringBuilder();
@@ -509,13 +600,21 @@ public class ScheduledNotifyService {
 
         for (int i = 0; i < items.size(); i++) {
             ItemNotifyData data = items.get(i);
+            // 调用钉钉API获取用户真实姓名
             String memberNames = data.members.stream()
-                    .map(m -> m.getDisplayName() != null ? m.getDisplayName() : m.getName())
+                    .map(m -> getRealName(m))
                     .collect(Collectors.joining(","));
 
-            // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
+            // 构建条目链接（markdown格式：[名称](链接)）
+            String itemName = data.itemInfo.getName();
+            String itemLink = data.itemInfo.getItemLink();
+            String itemNameWithLink = itemLink != null && !itemLink.isEmpty()
+                    ? "[" + itemName + "](" + itemLink + ")"
+                    : itemName;
+
+            // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称（可点击）】"
             sb.append(i + 1).append(". ")
-              .append(data.trackerTypeDisplay).append("【").append(data.itemInfo.getName()).append("】")
+              .append(data.trackerTypeDisplay).append("【").append(itemNameWithLink).append("】")
               .append("，在【").append(data.itemInfo.getStatus()).append("】状态下已【").append(data.stayDays).append("】天")
               .append("，负责人【").append(memberNames).append("】\n");
         }
@@ -589,13 +688,38 @@ public class ScheduledNotifyService {
      * 格式化成员消息
      *
      * 使用 trackerTypeDisplay（如"问题"、"需求"）作为条目前缀
+     * 条目名称支持点击跳转链接
      */
     private String formatMemberMessage(ItemInfoResponse itemInfo, String trackerTypeDisplay,
                                         int stayDays, ItemInfoResponse.MemberInfo member) {
-        String memberName = member.getDisplayName() != null ? member.getDisplayName() : member.getName();
-        // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称】"
+        // 调用钉钉API获取用户真实姓名
+        String memberName = getRealName(member);
+
+        // 构建条目链接（markdown格式：[名称](链接)）
+        String itemName = itemInfo.getName();
+        String itemLink = itemInfo.getItemLink();
+        String itemNameWithLink = itemLink != null && !itemLink.isEmpty()
+                ? "[" + itemName + "](" + itemLink + ")"
+                : itemName;
+
+        // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称（可点击）】"
         return String.format("您好，以下%s未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
-                trackerTypeDisplay, trackerTypeDisplay, itemInfo.getName(), itemInfo.getStatus(), stayDays, memberName);
+                trackerTypeDisplay, trackerTypeDisplay, itemNameWithLink, itemInfo.getStatus(), stayDays, memberName);
+    }
+
+    /**
+     * 获取成员真实姓名（调用钉钉API转换工号）
+     */
+    private String getRealName(ItemInfoResponse.MemberInfo member) {
+        String userId = member.getUserId();
+        if (userId != null && !userId.isEmpty()) {
+            String realName = dingService.getUserInfo(userId);
+            if (realName != null && !realName.isEmpty()) {
+                return realName;
+            }
+        }
+        // 兜底：使用原有显示名
+        return member.getDisplayName() != null ? member.getDisplayName() : member.getName();
     }
 
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {

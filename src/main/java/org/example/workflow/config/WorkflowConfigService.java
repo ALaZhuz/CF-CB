@@ -609,6 +609,21 @@ public class WorkflowConfigService {
     }
 
     /**
+     * 获取预清理时间
+     *
+     * 直接读取根级 defaultCleanupTime 配置
+     * 预清理任务在凌晨执行数据同步，确保定时通知前数据正确。
+     *
+     * @return 预清理时间（如 "04:00"），未配置返回默认值
+     */
+    public String getCleanupTime() {
+        if (workflowProperties.getDefaultCleanupTime() != null && !workflowProperties.getDefaultCleanupTime().isEmpty()) {
+            return workflowProperties.getDefaultCleanupTime();
+        }
+        return "04:00";
+    }
+
+    /**
      * 获取分类规则匹配
      *
      * 根据分类字段值匹配对应的分类规则

@@ -375,25 +375,48 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
     }
 
     /**
-     * 获取项目信息（id+name）
+     * 获取项目信息（id+name）- 带429重试
      *
-     * @param trackerId
-     * @return
+     * @param trackerId tracker ID
+     * @return tracker信息
      */
     @Override
     public CBTrackerInfoResponse getProjectInfo(Integer trackerId) {
         String url = baseUrl() + "/v3/trackers/" + trackerId;
 
-        ResponseEntity<CBTrackerInfoResponse> response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                httpHelper.getAuthEntity(),
-                CBTrackerInfoResponse.class
-        );
+        int maxRetries = 3;
 
-        CBTrackerInfoResponse res = response.getBody();
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                ResponseEntity<CBTrackerInfoResponse> response = restTemplate.exchange(
+                        url,
+                        HttpMethod.GET,
+                        httpHelper.getAuthEntity(),
+                        CBTrackerInfoResponse.class
+                );
 
-        return res;
+                return response.getBody();
+
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429) {
+                    int retryAfterSeconds = extractRetryAfterSeconds(e.getMessage());
+                    log.warn("API限流(getProjectInfo), trackerId={}, 等待{}秒后重试(第{}次)",
+                            trackerId, retryAfterSeconds, attempt + 1);
+
+                    try {
+                        Thread.sleep(retryAfterSeconds * 1000L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("重试等待被中断", ie);
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        log.warn("获取tracker项目信息失败(重试{}次后): trackerId={}", maxRetries, trackerId);
+        return null;
     }
 
     @Override
@@ -473,10 +496,10 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             fillTrackerInfo(itemInfo, trackerId);
         }
 
-        log.info("条目详情解析完成: itemId={}, trackerId={}, trackerName={}, trackerType={}, projectId={}, projectName={}",
-                itemId, trackerId, itemInfo.getTracker().getName(), itemInfo.getTrackerType(),
-                itemInfo.getProject() != null ? itemInfo.getProject().getId() : null,
-                itemInfo.getProject() != null ? itemInfo.getProject().getName() : null);
+        // 降低日志级别，避免频繁输出
+        log.debug("条目详情解析完成: itemId={}, trackerId={}, trackerType={}, projectId={}",
+                itemId, trackerId, itemInfo.getTrackerType(),
+                itemInfo.getProject() != null ? itemInfo.getProject().getId() : null);
 
         return itemInfo;
     }
@@ -643,6 +666,19 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 }
             }
             itemInfo.setAssignedTo(assignedToList);
+        }
+
+        // 解析owners成员列表（对应supervisors）
+        JsonNode ownersNode = body.path("owners");
+        if (ownersNode.isArray()) {
+            List<ItemInfoResponse.MemberInfo> ownersList = new ArrayList<>();
+            for (JsonNode member : ownersNode) {
+                ItemInfoResponse.MemberInfo memberInfo = parseMember(member);
+                if (memberInfo != null) {
+                    ownersList.add(memberInfo);
+                }
+            }
+            itemInfo.setOwners(ownersList);
         }
 
         // 解析submitter
@@ -1167,8 +1203,8 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
             String createdAt = firstVersion.getModifiedAt();
             if (createdAt != null) {
                 try {
-                    log.info("未找到状态变更记录, 使用创建时间作为初始状态的enter_state_time, itemId={}, targetState={}, createdAt={}",
-                            itemId, targetState, createdAt);
+                    // 降低日志级别，避免频繁输出
+                    log.debug("未找到状态变更记录, 使用创建时间: itemId={}, targetState={}", itemId, targetState);
                     return LocalDateTime.parse(createdAt, formatter);
                 } catch (Exception e) {
                     log.warn("解析创建时间失败, createdAt={}, itemId={}", createdAt, itemId);
@@ -1179,5 +1215,54 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
         // 兜底：使用当前时间
         log.warn("无法确定enter_state_time, 使用当前时间, itemId={}, targetState={}", itemId, targetState);
         return LocalDateTime.now();
+    }
+
+    /**
+     * 获取Tracker的字段名称映射
+     *
+     * 调用 tracker schema API，获取 legacyRestName -> name 的映射关系。
+     * 用于消息通知中显示中文字段名称。
+     *
+     * @param trackerId tracker ID
+     * @return 字段名称映射 Map<legacyRestName, name>
+     */
+    @Override
+    public Map<String, String> getTrackerFieldNameMapping(Integer trackerId) {
+        if (trackerId == null) {
+            return new HashMap<>();
+        }
+
+        String url = baseUrl() + "/v3/trackers/" + trackerId + "/schema";
+
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    httpHelper.getAuthEntity(),
+                    JsonNode.class
+            );
+
+            JsonNode body = response.getBody();
+            if (body == null || !body.isArray()) {
+                log.warn("获取tracker schema失败: trackerId={}", trackerId);
+                return new HashMap<>();
+            }
+
+            Map<String, String> mapping = new HashMap<>();
+            for (JsonNode field : body) {
+                String legacyRestName = field.path("legacyRestName").asText(null);
+                String name = field.path("name").asText(null);
+                if (legacyRestName != null && name != null) {
+                    mapping.put(legacyRestName, name);
+                }
+            }
+
+            log.debug("获取字段名称映射: trackerId={}, mappingCount={}", trackerId, mapping.size());
+            return mapping;
+
+        } catch (Exception e) {
+            log.warn("获取tracker schema异常: trackerId={}, error={}", trackerId, e.getMessage());
+            return new HashMap<>();
+        }
     }
 }
