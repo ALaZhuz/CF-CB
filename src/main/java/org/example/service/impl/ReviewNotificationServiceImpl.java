@@ -47,6 +47,8 @@ public class ReviewNotificationServiceImpl {
 
     public void runEightOClockTasks() {
         log.info("每日定时任务启动");
+        long startTime = System.currentTimeMillis();
+
         List<ReviewRecord> records = repository.findOpenRecords();
         if (records == null || records.isEmpty()) {
             log.info("没有开启的评审单！");
@@ -55,6 +57,9 @@ public class ReviewNotificationServiceImpl {
 
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
+        // 组织架构查询缓存，避免重复调用外部API
+        Map<String, OrganizationManagerResponse> managerCache = new HashMap<>();
+
         // 临期记录的分组映射：评审人 -> (临期天数 -> 评审记录列表)
         Map<String, Map<Long, List<ReviewRecord>>> nearExpiredByRecipient = new LinkedHashMap<>();
         // 超期记录的分组映射：评审人 -> (超期天数 -> 评审记录列表)
@@ -91,7 +96,7 @@ public class ReviewNotificationServiceImpl {
             boolean weeklyOverdueNotice = isOverdue && overdueDays > overdueWeekly
                     && today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY);
 
-            List<String> recipients = resolveEightClockRecipients(record, overdueDays, weeklyOverdueNotice);
+            List<String> recipients = resolveEightClockRecipients(record, overdueDays, weeklyOverdueNotice, managerCache);
             if (recipients.isEmpty()) {
                 continue;
             }
@@ -116,6 +121,8 @@ public class ReviewNotificationServiceImpl {
         sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true,
                 today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY));
 
+        long endTime = System.currentTimeMillis();
+        log.info("每日定时任务完成，总耗时: {}ms，处理记录数: {}条", endTime - startTime, records.size());
     }
 
     public void runThirtyMinuteTasks() {
@@ -251,6 +258,25 @@ public class ReviewNotificationServiceImpl {
 
             // 检查是否已存在数据库记录
             ReviewRecord existing = dbRecordMap.get(reviewId);
+
+            // 🔧 关键修复：如果存在现有记录，保留重要字段
+            if (existing != null) {
+                // 保留最后发送时间
+                record.overdueLastSent = existing.overdueLastSent;
+                record.nearExpiredLastSent = existing.nearExpiredLastSent;
+                record.overdueManagerLastSent = existing.overdueManagerLastSent;
+
+                // 保留通知状态
+                record.newNotified = existing.newNotified;
+                record.closeNotified = existing.closeNotified;
+                record.cancelNotified = existing.cancelNotified;
+
+                // 保留其他重要字段
+                record.pendingDelete = existing.pendingDelete;
+
+                // 保留创建时间
+                record.createdAt = existing.createdAt;
+            }
 
             // 插入或更新数据库
             repository.upsert(record);
@@ -478,8 +504,31 @@ public class ReviewNotificationServiceImpl {
             return false;
         }
         try {
-            return LocalDateTime.parse(sentAt, FMT).toLocalDate().isEqual(today);
+            // 首先尝试标准格式解析
+            LocalDateTime sentDateTime = LocalDateTime.parse(sentAt, FMT);
+            LocalDate sentDate = sentDateTime.toLocalDate();
+            boolean isToday = sentDate.isEqual(today);
+            if (!isToday) {
+                log.info("最后发送日期 {} 与今天 {} 不同", sentDate, today);
+            }
+            return isToday;
         } catch (Exception e) {
+            // 如果标准解析失败，尝试提取日期部分进行比较
+            try {
+                // ISO_LOCAL_DATE_TIME 格式为 "yyyy-MM-dd'T'HH:mm:ss"，前10个字符是日期
+                if (sentAt.length() >= 10) {
+                    String datePart = sentAt.substring(0, 10);
+                    LocalDate sentDate = LocalDate.parse(datePart);
+                    boolean isToday = sentDate.isEqual(today);
+                    if (!isToday) {
+                        log.info("最后发送日期 {} 与今天 {} 不同（通过子字符串解析）", sentDate, today);
+                    }
+                    return isToday;
+                }
+            } catch (Exception e2) {
+                log.warn("解析最后发送时间失败，尝试子字符串解析也失败: sentAt={}, error={}", sentAt, e2.getMessage());
+            }
+            log.warn("解析最后发送时间失败: sentAt={}, error={}", sentAt, e.getMessage());
             return false;
         }
     }
@@ -503,7 +552,7 @@ public class ReviewNotificationServiceImpl {
      * @return
      */
     private List<String> resolveEightClockRecipients(ReviewRecord record, long overdueDays,
-            boolean weeklyOverdueNotice) {
+            boolean weeklyOverdueNotice, Map<String, OrganizationManagerResponse> managerCache) {
         List<String> recipients = new ArrayList<>();
         if (record == null) {
             return recipients;
@@ -515,21 +564,21 @@ public class ReviewNotificationServiceImpl {
         }
         // 超期超过 weekly：仅周一通知科长+部长+总监+moderator+reviewer
         else if (weeklyOverdueNotice) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager", "director"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
             recipients.addAll(record.moderatorIds);
             recipients.addAll(record.reviewerIds);
         }
         // 超期 <= overdue-minister-default,每天通知科长
         else if (overdueDays <= overdueMinisterDefault) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
         }
         // 超期 <= overdue-director-default,每天通知科长+部长
         else if (overdueDays <= overdueDirectorDefault) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager"));
         }
         // 超期 <= overdue-weekly,每天通知科长+部长+总监
         else {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager", "director"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
         }
         return recipients.stream().filter(s -> s != null && !s.isBlank()).distinct().collect(Collectors.toList());
     }
@@ -543,7 +592,7 @@ public class ReviewNotificationServiceImpl {
      *               director:总监
      * @return
      */
-    private List<String> resolveManagerRecipients(ReviewRecord record, String... roles) {
+    private List<String> resolveManagerRecipients(ReviewRecord record, Map<String, OrganizationManagerResponse> managerCache, String... roles) {
         if (record == null) {
             return List.of();
         }
@@ -571,9 +620,18 @@ public class ReviewNotificationServiceImpl {
         // 每个 reviewer 只查一次组织架构，然后按需要的 role 集合提取并去重。
         Set<String> leaderIds = new LinkedHashSet<>();
         for (String userId : reviewUserIds) {
-            OrganizationManagerResponse manager = reviewService.queryOrganizationManager(userId);
+            // 先检查缓存
+            OrganizationManagerResponse manager = managerCache.get(userId);
             if (manager == null) {
-                continue;
+                // 缓存未命中，查询外部API
+                manager = reviewService.queryOrganizationManager(userId);
+                if (manager == null) {
+                    continue;
+                }
+                // 存入缓存
+                managerCache.put(userId, manager);
+            } else {
+                log.debug("组织架构缓存命中: userId={}", userId);
             }
             addLeadersByRole(leaderIds, manager, requestedRoles);
         }

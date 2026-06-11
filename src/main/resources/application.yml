@@ -57,10 +57,10 @@ dingtalk:
   # 超期overdue-weekly天后周几提醒
   overdue-weekly-day: 4
   # 每天定时任务提醒，默认8点
-  notify-cron: "0 55 10 * * ?"
+  notify-cron: "0 0 13 * * ?"
   # 轮询任务，默认30分钟
 #  fixed-delay: 1800000
-  fixed-delay: 300000
+  fixed-delay: 180000
 
 server:
   port: 8081
