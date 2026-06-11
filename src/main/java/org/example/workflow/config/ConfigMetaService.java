@@ -217,6 +217,10 @@ public class ConfigMetaService {
             }
 
             // 绑定根级别字段
+            if (configMap.containsKey("default-cleanup-time")) {
+                workflowProperties.setDefaultCleanupTime((String) configMap.get("default-cleanup-time"));
+            }
+
             if (configMap.containsKey("default-notify-time")) {
                 workflowProperties.setDefaultNotifyTime((String) configMap.get("default-notify-time"));
             }

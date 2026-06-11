@@ -463,24 +463,6 @@ public class WorkflowConfigService {
     }
 
     /**
-     * 获取钉钉通知模式
-     *
-     * @return 通知模式：enterprise 或 personal
-     */
-    public String getDingtalkMode() {
-        return workflowProperties.getDingtalk().getMode();
-    }
-
-    /**
-     * 获取个人钉钉Webhook URL
-     *
-     * @return Webhook URL
-     */
-    public String getPersonalWebhookUrl() {
-        return workflowProperties.getDingtalk().getPersonalWebhookUrl();
-    }
-
-    /**
      * 获取分类配置
      *
      * 四级优先级：tracker级 > 项目级tracker-types > 项目级global > 全局级

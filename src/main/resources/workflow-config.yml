@@ -1,9 +1,5 @@
 # 工作流通知配置文件
 
-dingtalk:
-  mode: enterprise
-  personal-webhook-url: ""
-
 # 预清理执行时间（凌晨执行数据同步，确保定时通知前数据正确）
 default-cleanup-time: "04:00"
 
@@ -46,9 +42,9 @@ type-mappings:
 # 项目级完全覆盖全局，不追加
 # ─────────────────────────────────────────────────────────────────────────────
 extra-fields:
-  global:
-    - field:
-      label:
+#  global:
+#    - field:
+#      label:
   projects:
     "5":
       - field: "严重程度"

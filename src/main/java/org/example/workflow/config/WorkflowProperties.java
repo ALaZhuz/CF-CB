@@ -57,15 +57,10 @@ public class WorkflowProperties {
     private List<ProjectConfig> projects = new ArrayList<>();
 
     /**
-     * 钉钉通知模式配置类
+     * 钉钉通知配置类（企业钉钉）
      */
     @Data
     public static class DingtalkConfig {
-        /** 通知模式：enterprise（企业钉钉）或 personal（个人钉钉Webhook） */
-        private String mode = "enterprise";
-
-        /** 个人钉钉Webhook URL（当mode为personal时使用） */
-        private String personalWebhookUrl;
     }
 
     /**

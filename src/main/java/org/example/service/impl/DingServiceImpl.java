@@ -75,24 +75,14 @@ public class DingServiceImpl implements DingService {
     }
 
     /**
-     * 发送纯文本消息
+     * 发送纯文本消息（企业钉钉）
      *
-     * 根据配置的模式选择企业钉钉或个人钉钉Webhook发送。
-     *
-     * @param userIds 接收用户ID列表，逗号分隔（企业钉钉模式使用）
+     * @param userIds 接收用户ID列表，逗号分隔
      * @param content 文本内容
      */
     @Override
     public void sendTextMessage(String userIds, String content) {
-        String mode = dingProperties.getMode();
-
-        if ("personal".equals(mode)) {
-            // 个人钉钉Webhook模式
-            sendPersonalTextMessage(content);
-        } else {
-            // 企业钉钉模式
-            sendEnterpriseTextMessage(userIds, content);
-        }
+        sendEnterpriseTextMessage(userIds, content);
     }
 
     @Override
@@ -124,29 +114,6 @@ public class DingServiceImpl implements DingService {
 
         postForObject(dingProperties.getMessageUrl() + "?access_token=" + accessToken, req, Map.class);
         log.info("企业钉钉发送文本消息成功, userIds={}", userIds);
-    }
-
-    /**
-     * 个人钉钉Webhook发送纯文本消息
-     *
-     * @param content 文本内容
-     */
-    private void sendPersonalTextMessage(String content) {
-        String webhookUrl = dingProperties.getPersonalWebhookUrl();
-        if (webhookUrl == null || webhookUrl.isEmpty()) {
-            log.error("个人钉钉Webhook URL未配置");
-            return;
-        }
-
-        Map<String, Object> text = new HashMap<>();
-        text.put("content", content);
-
-        Map<String, Object> req = new HashMap<>();
-        req.put("msgtype", "text");
-        req.put("text", text);
-
-        postForObject(webhookUrl, req, Map.class);
-        log.info("个人钉钉Webhook发送文本消息成功");
     }
 
     /**

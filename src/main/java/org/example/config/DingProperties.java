@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
  * 钉钉配置属性绑定类
  *
  * 用于读取 application.yml 中的钉钉相关配置。
- * 支持企业钉钉和个人钉钉两种通知模式。
+ * 仅支持企业钉钉模式。
  *
  * @author system
  * @since 1.0
@@ -44,12 +44,6 @@ public class DingProperties {
 
     /** 组织Webhook URL */
     private String organizationWebhookUrl;
-
-    /** 通知模式：enterprise（企业钉钉）或 personal（个人钉钉Webhook） */
-    private String mode = "enterprise";
-
-    /** 个人钉钉Webhook URL（当mode为personal时使用） */
-    private String personalWebhookUrl;
 
     /** 用户查询URL（用于校验userid是否存在） */
     private String userQueryUrl = "https://oapi.dingtalk.com/topapi/v2/user/get";
