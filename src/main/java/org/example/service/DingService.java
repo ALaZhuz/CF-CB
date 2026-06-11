@@ -1,5 +1,7 @@
 package org.example.service;
 
+import org.example.model.dto.response.DingMessageResponse;
+
 /**
  * 钉钉服务接口
  *
@@ -34,7 +36,7 @@ public interface DingService {
       * @param title 消息标题
       * @param markdown 消息内容，markdown格式
      */
-    void sendMessage(String userIds, String title, String markdown);
+    DingMessageResponse sendMessage(String userIds, String title, String markdown);
 
     /**
      * 根据工号获取钉钉用户信息，目前只返回name

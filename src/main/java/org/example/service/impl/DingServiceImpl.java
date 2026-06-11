@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.config.DingProperties;
+import org.example.model.dto.response.DingMessageResponse;
 import org.example.service.DingService;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -58,7 +59,7 @@ public class DingServiceImpl implements DingService {
      * @param markdown Markdown内容
      */
 
-    public void sendMessage(String userIds, String title, String markdown) {
+    public DingMessageResponse sendMessage(String userIds, String title, String markdown) {
         String accessToken = getAccessToken();
         Map<String, Object> actionCard = new HashMap<>();
         actionCard.put("title", title);
@@ -71,7 +72,19 @@ public class DingServiceImpl implements DingService {
         req.put("userid_list", userIds);
         req.put("to_all_user", false);
         req.put("msg", msg);
-        postForObject(dingProperties.getMessageUrl() + "?access_token=" + accessToken, req, Map.class);
+        Map<?, ?> resp = postForObject(dingProperties.getMessageUrl() + "?access_token=" + accessToken, req, Map.class);
+        Object errcode = resp != null ? resp.get("errcode") : null;
+        if (errcode != null && ((Number) errcode).intValue() == 0) {
+            // 安全转换字段
+            Integer errcodeInt = ((Number) resp.get("errcode")).intValue();
+            String errmsg = resp.get("errmsg").toString();
+            Long taskId = ((Number)resp.get("task_id")).longValue();
+            String requestId = resp.get("request_id").toString();
+            DingMessageResponse response = new DingMessageResponse(errcodeInt, errmsg, taskId, requestId);
+            return response;
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -130,16 +143,35 @@ public class DingServiceImpl implements DingService {
         req.put("userid", userId);
         req.put("language", "zh_CN");
         Map<?, ?> resp = postForObject(url, req, Map.class);
-        Integer errcode = (Integer) resp.get("errcode");
+        if (resp == null) {
+            return null;
+        }
+
+        // 安全转换 errcode
+        Integer errcode = null;
+        Object errcodeObj = resp.get("errcode");
+        if (errcodeObj instanceof Number) {
+            errcode = ((Number) errcodeObj).intValue();
+        } else if (errcodeObj != null) {
+            try {
+                errcode = Integer.parseInt(errcodeObj.toString());
+            } catch (NumberFormatException e) {
+                // 转换失败，视为错误
+                errcode = -1;
+            }
+        }
+
         if (errcode == null || errcode != 0) {
             return null;
         }
+
         Map<?, ?> result = (Map<?, ?>) resp.get("result");
         if (result == null) {
             return null;
         }
-        String name = (String) result.get("name");
-        return name;
+
+        Object nameObj = result.get("name");
+        return nameObj != null ? nameObj.toString() : null;
     }
 
     /**

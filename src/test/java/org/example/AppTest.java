@@ -4,8 +4,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.model.dto.request.TrackerItemRequest;
 import org.example.model.dto.response.DownstreamGroupResponse;
 import org.example.model.dto.response.TrackerItemGroupResponse;
+import org.example.repository.ReviewNotifyRepository;
 import org.example.scheduler.ReviewNotifyScheduler;
+import org.example.service.DingService;
 import org.example.service.TrackerService;
+import org.example.service.impl.ReviewNotificationServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,14 +30,32 @@ class AppTest {
     @Autowired
     private ReviewNotifyScheduler reviewNotifyScheduler;
 
+
+
+    @Autowired
+    private DingService dingService;
+
     @Test
     void testThirtyMinuteScheduleTask() {
         reviewNotifyScheduler.runThirtyMinuteTasks();
+//        reviewNotificationService.runThirtyMinuteTasks();
     }
+
+//    @Test
+//    void testSqlite(){
+//
+//        List<ReviewNotifyRepository.ReviewRecord> records = repository.findOpenRecords();
+//    }
+
 
     @Test
     void testEightOClockTask(){
         reviewNotifyScheduler.runEightOClockTasks();
+    }
+
+    @Test
+    void testDingMessageSend(){
+        dingService.sendMessage("271824611524632704", "Test Title1", "Test Markdown1");
     }
 
     @Test

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.config.DingProperties;
 import org.example.config.ReviewProperties;
 import org.example.model.cb.ReviewItem;
+import org.example.model.dto.response.DingMessageResponse;
 import org.example.model.dto.response.OrganizationManagerResponse;
 import org.example.model.dto.response.ReviewStatisticsResponse;
 import org.example.repository.ReviewNotifyRepository;
@@ -41,9 +42,13 @@ public class ReviewNotificationServiceImpl {
     private int overdueDirectorDefault;
     @Value("${dingtalk.near-expired-default}")
     private int nearExpiredDefault;
+    @Value("${dingtalk.overdue-weekly-day}")
+    private int overdueWeeklyDay;
 
     public void runEightOClockTasks() {
         log.info("每日定时任务启动");
+        long startTime = System.currentTimeMillis();
+
         List<ReviewRecord> records = repository.findOpenRecords();
         if (records == null || records.isEmpty()) {
             log.info("没有开启的评审单！");
@@ -52,10 +57,22 @@ public class ReviewNotificationServiceImpl {
 
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
+        // 组织架构查询缓存，避免重复调用外部API
+        Map<String, OrganizationManagerResponse> managerCache = new HashMap<>();
+
         // 临期记录的分组映射：评审人 -> (临期天数 -> 评审记录列表)
         Map<String, Map<Long, List<ReviewRecord>>> nearExpiredByRecipient = new LinkedHashMap<>();
         // 超期记录的分组映射：评审人 -> (超期天数 -> 评审记录列表)
         Map<String, Map<Long, List<ReviewRecord>>> overdueByRecipient = new LinkedHashMap<>();
+        // 判断是周几
+        Map<Integer, java.time.DayOfWeek> dayOfWeekMap = Map.of(
+                1, java.time.DayOfWeek.MONDAY,
+                2, java.time.DayOfWeek.TUESDAY,
+                3, java.time.DayOfWeek.WEDNESDAY,
+                4, java.time.DayOfWeek.THURSDAY,
+                5, java.time.DayOfWeek.FRIDAY,
+                6, java.time.DayOfWeek.SATURDAY,
+                7, java.time.DayOfWeek.SUNDAY);
 
         // 8 点任务按“先确认接收人，再按这个人批量发送”的方式组织数据。
         // 同一个人如果命中多条 review，会在同一个事件分组里合并成一条消息。
@@ -75,10 +92,11 @@ public class ReviewNotificationServiceImpl {
             boolean isNearExpired = overdueDays <= 0 && Math.abs(overdueDays) < nearExpiredDefault;
             // 是否超期：逾期天数 > 0
             boolean isOverdue = overdueDays > 0;
+            // 超期后判断是周几，如果是设定的逾期每周提醒日，则满足条件
             boolean weeklyOverdueNotice = isOverdue && overdueDays > overdueWeekly
-                    && today.getDayOfWeek() == java.time.DayOfWeek.MONDAY;
+                    && today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY);
 
-            List<String> recipients = resolveEightClockRecipients(record, overdueDays, weeklyOverdueNotice);
+            List<String> recipients = resolveEightClockRecipients(record, overdueDays, weeklyOverdueNotice, managerCache);
             if (recipients.isEmpty()) {
                 continue;
             }
@@ -101,8 +119,10 @@ public class ReviewNotificationServiceImpl {
                 true);
         // 春风组织架构接口不可用
         sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true,
-                today.getDayOfWeek() == java.time.DayOfWeek.MONDAY);
+                today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY));
 
+        long endTime = System.currentTimeMillis();
+        log.info("每日定时任务完成，总耗时: {}ms，处理记录数: {}条", endTime - startTime, records.size());
     }
 
     public void runThirtyMinuteTasks() {
@@ -151,6 +171,7 @@ public class ReviewNotificationServiceImpl {
 
         // 10. 如果没有需要发送的记录，直接返回
         if (overdueByRecipient.isEmpty()) {
+            log.info("针对审阅和审查，没有超期的评审！");
             return;
         }
 
@@ -169,11 +190,14 @@ public class ReviewNotificationServiceImpl {
 
             String markdown = buildOverdueMarkdown(overdueGroups, false);
             // 14. 发送钉钉消息
-            dingService.sendMessage(userId, title, markdown);
+            DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
+            if (resp != null && resp.getErrcode() == 0) {
+                log.info("超期轮询钉钉消息已发送, taskId={},userId={}", resp.getTaskId(), userId);
+                // 15. 更新每条记录的最后发送时间，用于后续去重
+                overdueGroups.values().stream().flatMap(List::stream).distinct()
+                        .forEach(r -> repository.updateLastSent(r.reviewId, "overdue_last_sent", now));
+            }
 
-            // 15. 更新每条记录的最后发送时间，用于后续去重
-            overdueGroups.values().stream().flatMap(List::stream).distinct()
-                    .forEach(r -> repository.updateLastSent(r.reviewId, "overdue_last_sent", now));
         }
     }
 
@@ -235,6 +259,25 @@ public class ReviewNotificationServiceImpl {
             // 检查是否已存在数据库记录
             ReviewRecord existing = dbRecordMap.get(reviewId);
 
+            // 🔧 关键修复：如果存在现有记录，保留重要字段
+            if (existing != null) {
+                // 保留最后发送时间
+                record.overdueLastSent = existing.overdueLastSent;
+                record.nearExpiredLastSent = existing.nearExpiredLastSent;
+                record.overdueManagerLastSent = existing.overdueManagerLastSent;
+
+                // 保留通知状态
+                record.newNotified = existing.newNotified;
+                record.closeNotified = existing.closeNotified;
+                record.cancelNotified = existing.cancelNotified;
+
+                // 保留其他重要字段
+                record.pendingDelete = existing.pendingDelete;
+
+                // 保留创建时间
+                record.createdAt = existing.createdAt;
+            }
+
             // 插入或更新数据库
             repository.upsert(record);
             // 更新读取的数据库缓存
@@ -281,15 +324,18 @@ public class ReviewNotificationServiceImpl {
         }
 
         // 8. 记录统计信息
-//        int newCount = lifecycleBuckets.getOrDefault("NEW", Collections.emptyMap())
-//                .values().stream().mapToInt(List::size).sum();
-//        int canceledCount = lifecycleBuckets.getOrDefault("CANCELED", Collections.emptyMap())
-//                .values().stream().mapToInt(List::size).sum();
-//        int closedCount = lifecycleBuckets.getOrDefault("CLOSED", Collections.emptyMap())
-//                .values().stream().mapToInt(List::size).sum();
-//
-//        log.info("生命周期同步完成：新增{}个，取消{}个，关闭{}个，总共处理{}条记录",
-//                newCount, canceledCount, closedCount, newCount + canceledCount + closedCount);
+         int newCount = lifecycleBuckets.getOrDefault("NEW", Collections.emptyMap())
+         .values().stream().mapToInt(List::size).sum();
+         int canceledCount = lifecycleBuckets.getOrDefault("CANCELED",
+         Collections.emptyMap())
+         .values().stream().mapToInt(List::size).sum();
+         int closedCount = lifecycleBuckets.getOrDefault("CLOSED",
+         Collections.emptyMap())
+         .values().stream().mapToInt(List::size).sum();
+
+         log.info("生命周期同步完成：新增{}个，取消{}个，关闭{}个，总共处理{}条记录",
+         newCount, canceledCount, closedCount, newCount + canceledCount +
+         closedCount);
     }
 
     /**
@@ -382,12 +428,18 @@ public class ReviewNotificationServiceImpl {
                 markdown = buildLifecycleMarkdown(title, items);
             }
             try {
-                dingService.sendMessage(userId, title, markdown);
-                for (LifecycleNotify item : items) {
-                    notifiedUpdater.accept(item.reviewId, true);
-                }
-            } catch (Exception ignored) {
-                // 发送失败不更新发送状态，留待下次重试
+                // 检查发送结果
+                DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
+
+                if (resp != null && resp.getErrcode() == 0) { // 仅当成功时更新
+                    for (LifecycleNotify item : items) {
+                        notifiedUpdater.accept(item.reviewId, true);
+                    }
+                    log.info("评审生命周期通知已发送: taskId={}, userId={}, eventType={}, count={}",
+                            resp.getTaskId(), userId, eventType, items.size());
+                } 
+            } catch (Exception e) {
+                log.error("生命周期通知发送异常: userId={}, error={}", userId, e.getMessage());
             }
         }
     }
@@ -452,8 +504,31 @@ public class ReviewNotificationServiceImpl {
             return false;
         }
         try {
-            return LocalDateTime.parse(sentAt, FMT).toLocalDate().isEqual(today);
+            // 首先尝试标准格式解析
+            LocalDateTime sentDateTime = LocalDateTime.parse(sentAt, FMT);
+            LocalDate sentDate = sentDateTime.toLocalDate();
+            boolean isToday = sentDate.isEqual(today);
+            if (!isToday) {
+                log.info("最后发送日期 {} 与今天 {} 不同", sentDate, today);
+            }
+            return isToday;
         } catch (Exception e) {
+            // 如果标准解析失败，尝试提取日期部分进行比较
+            try {
+                // ISO_LOCAL_DATE_TIME 格式为 "yyyy-MM-dd'T'HH:mm:ss"，前10个字符是日期
+                if (sentAt.length() >= 10) {
+                    String datePart = sentAt.substring(0, 10);
+                    LocalDate sentDate = LocalDate.parse(datePart);
+                    boolean isToday = sentDate.isEqual(today);
+                    if (!isToday) {
+                        log.info("最后发送日期 {} 与今天 {} 不同（通过子字符串解析）", sentDate, today);
+                    }
+                    return isToday;
+                }
+            } catch (Exception e2) {
+                log.warn("解析最后发送时间失败，尝试子字符串解析也失败: sentAt={}, error={}", sentAt, e2.getMessage());
+            }
+            log.warn("解析最后发送时间失败: sentAt={}, error={}", sentAt, e.getMessage());
             return false;
         }
     }
@@ -477,7 +552,7 @@ public class ReviewNotificationServiceImpl {
      * @return
      */
     private List<String> resolveEightClockRecipients(ReviewRecord record, long overdueDays,
-            boolean weeklyOverdueNotice) {
+            boolean weeklyOverdueNotice, Map<String, OrganizationManagerResponse> managerCache) {
         List<String> recipients = new ArrayList<>();
         if (record == null) {
             return recipients;
@@ -489,21 +564,21 @@ public class ReviewNotificationServiceImpl {
         }
         // 超期超过 weekly：仅周一通知科长+部长+总监+moderator+reviewer
         else if (weeklyOverdueNotice) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager", "director"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
             recipients.addAll(record.moderatorIds);
             recipients.addAll(record.reviewerIds);
         }
         // 超期 <= overdue-minister-default,每天通知科长
         else if (overdueDays <= overdueMinisterDefault) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
         }
         // 超期 <= overdue-director-default,每天通知科长+部长
         else if (overdueDays <= overdueDirectorDefault) {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager"));
         }
         // 超期 <= overdue-weekly,每天通知科长+部长+总监
         else {
-            recipients.addAll(resolveManagerRecipients(record, "sectionManager", "departmentManager", "director"));
+            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
         }
         return recipients.stream().filter(s -> s != null && !s.isBlank()).distinct().collect(Collectors.toList());
     }
@@ -517,7 +592,7 @@ public class ReviewNotificationServiceImpl {
      *               director:总监
      * @return
      */
-    private List<String> resolveManagerRecipients(ReviewRecord record, String... roles) {
+    private List<String> resolveManagerRecipients(ReviewRecord record, Map<String, OrganizationManagerResponse> managerCache, String... roles) {
         if (record == null) {
             return List.of();
         }
@@ -545,9 +620,18 @@ public class ReviewNotificationServiceImpl {
         // 每个 reviewer 只查一次组织架构，然后按需要的 role 集合提取并去重。
         Set<String> leaderIds = new LinkedHashSet<>();
         for (String userId : reviewUserIds) {
-            OrganizationManagerResponse manager = reviewService.queryOrganizationManager(userId);
+            // 先检查缓存
+            OrganizationManagerResponse manager = managerCache.get(userId);
             if (manager == null) {
-                continue;
+                // 缓存未命中，查询外部API
+                manager = reviewService.queryOrganizationManager(userId);
+                if (manager == null) {
+                    continue;
+                }
+                // 存入缓存
+                managerCache.put(userId, manager);
+            } else {
+                log.debug("组织架构缓存命中: userId={}", userId);
             }
             addLeadersByRole(leaderIds, manager, requestedRoles);
         }
@@ -612,26 +696,86 @@ public class ReviewNotificationServiceImpl {
                 continue;
             }
 
-            String sentMarker = extractSentMarker(grouped, sentField);
-            if (alreadySentToday(sentMarker, today)) {
+            // 诊断日志：记录分组详情
+            int totalRecords = grouped.values().stream().mapToInt(List::size).sum();
+            int sentTodayCount = 0;
+            for (List<ReviewRecord> records : grouped.values()) {
+                for (ReviewRecord record : records) {
+                    String sentTime = getSentTime(record, sentField);
+                    if (sentTime != null && !sentTime.isBlank() && alreadySentToday(sentTime, today)) {
+                        sentTodayCount++;
+                    }
+                }
+            }
+            log.info("分组详情：收件人={}, 总记录数={}, 今天已发送数={}, 未发送数={}",
+                    userId, totalRecords, sentTodayCount, totalRecords - sentTodayCount);
+
+            // 方案A：过滤出今天未发送的记录，重新分组
+            Map<Long, List<ReviewRecord>> filteredGrouped = new TreeMap<>();
+            for (Map.Entry<Long, List<ReviewRecord>> dayGroup : grouped.entrySet()) {
+                Long days = dayGroup.getKey();
+                List<ReviewRecord> originalRecords = dayGroup.getValue();
+
+                List<ReviewRecord> filteredRecords = new ArrayList<>();
+                for (ReviewRecord record : originalRecords) {
+                    String sentTime = getSentTime(record, sentField);
+                    if (sentTime == null || sentTime.isBlank() || !alreadySentToday(sentTime, today)) {
+                        filteredRecords.add(record);
+                    }
+                }
+
+                if (!filteredRecords.isEmpty()) {
+                    filteredGrouped.put(days, filteredRecords);
+                }
+            }
+
+            if (filteredGrouped.isEmpty()) {
+                log.info("收件人{}的所有评审今天都已发送，跳过", userId);
                 continue;
             }
 
-            String markdown = overdueMode ? buildOverdueMarkdown(grouped, redLabelMode)
-                    : buildNearExpiredMarkdown(grouped, redLabelMode);
+            // 构建并发送消息
+            String markdown = overdueMode ? buildOverdueMarkdown(filteredGrouped, redLabelMode)
+                    : buildNearExpiredMarkdown(filteredGrouped, redLabelMode);
             try {
-                dingService.sendMessage(userId, title, markdown);
-                log.info("每日{}定时任务钉钉消息发送成功, userId={}, title={}", overdueMode ? "超期" : "临期", userId, title);
-                for (List<ReviewRecord> group : grouped.values()) {
-                    for (ReviewRecord r : group) {
-                        repository.updateLastSent(r.reviewId, sentField, now);
+                DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
+                if (resp != null && resp.getErrcode() == 0) {
+                    List<Long> reviewIds = filteredGrouped.values().stream()
+                            .flatMap(List::stream)
+                            .map(r -> r.reviewId)
+                            .distinct()
+                            .collect(Collectors.toList());
+                    log.info("每日{}定时任务钉钉消息已发送, taskId={}, userId={}, reviewIds={}", overdueMode ? "超期" : "临期", resp.getTaskId(),userId, reviewIds);
+
+                    // 只更新过滤后记录的发送时间
+                    for (List<ReviewRecord> group : filteredGrouped.values()) {
+                        for (ReviewRecord r : group) {
+                            repository.updateLastSent(r.reviewId, sentField, now);
+                        }
                     }
                 }
+
             } catch (Exception e) {
                 log.error("每日定时任务-钉钉通知发送失败. userId={}, title={}, reviewCount={}", userId, title,
-                        grouped.values().stream().mapToInt(List::size).sum(), e);
+                        filteredGrouped.values().stream().mapToInt(List::size).sum(), e);
             }
         }
+    }
+
+    /**
+     * 根据字段名获取记录的发送时间
+     */
+    private String getSentTime(ReviewRecord record, String sentField) {
+        if (record == null) {
+            return null;
+        }
+        if ("near_expired_last_sent".equals(sentField)) {
+            return record.nearExpiredLastSent;
+        }
+        if ("overdue_manager_last_sent".equals(sentField)) {
+            return record.overdueManagerLastSent;
+        }
+        return record.overdueLastSent;
     }
 
     /**
@@ -750,40 +894,6 @@ public class ReviewNotificationServiceImpl {
     private String buildReviewUrl(long reviewId) {
         // 统一通过配置拼接详情页地址，避免消息文案里出现硬编码链接。
         return reviewProperties.getLinkPrefix() + reviewId;
-    }
-
-    /**
-     * 提取分组数据的最后发送时间标记
-     *
-     * <p>
-     * 从按逾期天数分组的评审记录中提取第一条记录的指定发送时间字段值。
-     * 用于判断该分组是否已经在当天发送过提醒。
-     *
-     * @param grouped   按逾期天数分组的评审记录
-     * @param sentField 发送时间字段名
-     * @return 最后发送时间字符串，如果分组为空或字段不存在则返回null
-     */
-    private String extractSentMarker(Map<Long, List<ReviewRecord>> grouped, String sentField) {
-        if (grouped == null || grouped.isEmpty()) {
-            return null;
-        }
-        for (List<ReviewRecord> records : grouped.values()) {
-            if (records == null || records.isEmpty()) {
-                continue;
-            }
-            ReviewRecord first = records.get(0);
-            if (first == null) {
-                continue;
-            }
-            if ("near_expired_last_sent".equals(sentField)) {
-                return first.nearExpiredLastSent;
-            }
-            if ("overdue_manager_last_sent".equals(sentField)) {
-                return first.overdueManagerLastSent;
-            }
-            return first.overdueLastSent;
-        }
-        return null;
     }
 
     private String safe(String s) {
