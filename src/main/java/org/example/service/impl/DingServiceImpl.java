@@ -6,11 +6,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.config.DingProperties;
 import org.example.model.dto.response.DingMessageResponse;
+import org.example.model.dto.response.DingRobotMessageResponse;
 import org.example.service.DingService;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -262,5 +264,75 @@ public class DingServiceImpl implements DingService {
         HttpEntity<Object> entity = new HttpEntity<>(body, headers);
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
         return response.getBody();
+    }
+
+    /**
+     * 发送机器人消息
+     *
+     * 使用钉钉机器人API发送markdown消息给指定用户。
+     * HTTP状态码200视为成功，无效用户和限流用户作为警告记录。
+     *
+     * @param userId 接收用户ID（单个用户）
+     * @param title 消息标题
+     * @param markdown Markdown内容
+     * @return 响应对象；HTTP非200或异常时返回null
+     */
+    @Override
+    public DingRobotMessageResponse sendRobotMessage(String userId, String title, String markdown) {
+        try {
+            String accessToken = getAccessToken();
+            String url = dingProperties.getBaseUrlPrefix() + "/v1.0/robot/oToMessages/batchSend";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("x-acs-dingtalk-access-token", accessToken);
+
+            // 构建请求体
+            Map<String, Object> msgParam = new HashMap<>();
+            msgParam.put("text", markdown);
+            msgParam.put("title", title);
+
+            Map<String, Object> req = new HashMap<>();
+            req.put("robotCode", dingProperties.getRobotCode());
+            req.put("userIds", Collections.singletonList(userId));
+            req.put("msgKey", "sampleMarkdown");
+            req.put("msgParam", objectMapper.writeValueAsString(msgParam));
+
+            HttpEntity<Object> entity = new HttpEntity<>(req, headers);
+            ResponseEntity<DingRobotMessageResponse> response = restTemplate.exchange(
+                url, HttpMethod.POST, entity, DingRobotMessageResponse.class);
+
+            // 明确判断 HTTP 状态码是否为 200
+            if (response.getStatusCode() == HttpStatus.OK) {
+                DingRobotMessageResponse result = response.getBody();
+
+                if (result != null) {
+                    // 打印无效用户列表和限流用户列表
+                    if (result.getInvalidStaffIdList() != null && !result.getInvalidStaffIdList().isEmpty()) {
+                        log.warn("机器人消息发送-无效用户: userId={}, invalidStaffIdList={}",
+                            userId, result.getInvalidStaffIdList());
+                    }
+                    if (result.getFlowControlledStaffIdList() != null && !result.getFlowControlledStaffIdList().isEmpty()) {
+                        log.warn("机器人消息发送-被限流用户: userId={}, flowControlledStaffIdList={}",
+                            userId, result.getFlowControlledStaffIdList());
+                    }
+
+                    log.info("机器人消息发送成功: userId={}, processQueryKey={}",
+                        userId, result.getProcessQueryKey());
+
+                    return result;
+                }
+            } else {
+                log.error("机器人消息发送失败: userId={}, httpStatus={}",
+                    userId, response.getStatusCodeValue());
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.error("机器人消息发送异常: userId={}, error={}", userId, e.getMessage());
+            return null;
+        }
+
+        return null;
     }
 }

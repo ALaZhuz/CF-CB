@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.config.DingProperties;
 import org.example.config.ReviewProperties;
 import org.example.model.cb.ReviewItem;
-import org.example.model.dto.response.DingMessageResponse;
+import org.example.model.dto.response.DingRobotMessageResponse;
 import org.example.model.dto.response.OrganizationManagerResponse;
 import org.example.model.dto.response.ReviewStatisticsResponse;
 import org.example.repository.ReviewNotifyRepository;
@@ -34,16 +34,7 @@ public class ReviewNotificationServiceImpl {
     private final CBSwaggerService cbSwaggerService;
     private final ReviewNotifyRepository repository;
     private final ReviewProperties reviewProperties;
-    @Value("${dingtalk.overdue-weekly}")
-    private int overdueWeekly;
-    @Value("${dingtalk.overdue-minister-default}")
-    private int overdueMinisterDefault;
-    @Value("${dingtalk.overdue-director-default}")
-    private int overdueDirectorDefault;
-    @Value("${dingtalk.near-expired-default}")
-    private int nearExpiredDefault;
-    @Value("${dingtalk.overdue-weekly-day}")
-    private int overdueWeeklyDay;
+    private final DingProperties dingProperties;
 
     public void runEightOClockTasks() {
         log.info("每日定时任务启动");
@@ -64,15 +55,6 @@ public class ReviewNotificationServiceImpl {
         Map<String, Map<Long, List<ReviewRecord>>> nearExpiredByRecipient = new LinkedHashMap<>();
         // 超期记录的分组映射：评审人 -> (超期天数 -> 评审记录列表)
         Map<String, Map<Long, List<ReviewRecord>>> overdueByRecipient = new LinkedHashMap<>();
-        // 判断是周几
-        Map<Integer, java.time.DayOfWeek> dayOfWeekMap = Map.of(
-                1, java.time.DayOfWeek.MONDAY,
-                2, java.time.DayOfWeek.TUESDAY,
-                3, java.time.DayOfWeek.WEDNESDAY,
-                4, java.time.DayOfWeek.THURSDAY,
-                5, java.time.DayOfWeek.FRIDAY,
-                6, java.time.DayOfWeek.SATURDAY,
-                7, java.time.DayOfWeek.SUNDAY);
 
         // 8 点任务按“先确认接收人，再按这个人批量发送”的方式组织数据。
         // 同一个人如果命中多条 review，会在同一个事件分组里合并成一条消息。
@@ -84,17 +66,17 @@ public class ReviewNotificationServiceImpl {
             // 5. 计算逾期天数：正数表示超期，负数表示未到期，overdueDays==0表示dealine当天
             long overdueDays = calcOverdueDays(record.deadline, today);
             // 还未临期，跳过，dealine当日为临期最后一天
-            if (overdueDays < 0 && Math.abs(overdueDays) >= nearExpiredDefault) {
+            if (overdueDays < 0 && Math.abs(overdueDays) >= dingProperties.getNearExpiredDefault()) {
                 continue;
             }
 
             // 是否临期：逾期天数 <= 0 且绝对值小于临期阈值
-            boolean isNearExpired = overdueDays <= 0 && Math.abs(overdueDays) < nearExpiredDefault;
+            boolean isNearExpired = overdueDays <= 0 && Math.abs(overdueDays) < dingProperties.getNearExpiredDefault();
             // 是否超期：逾期天数 > 0
             boolean isOverdue = overdueDays > 0;
-            // 超期后判断是周几，如果是设定的逾期每周提醒日，则满足条件
-            boolean weeklyOverdueNotice = isOverdue && overdueDays > overdueWeekly
-                    && today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY);
+            // 超期后判断：超过overdueWeekly天后，每隔overdueWeeklyDay天提醒一次
+            boolean weeklyOverdueNotice = isOverdue && overdueDays > dingProperties.getOverdueWeekly()
+                    && ((overdueDays - dingProperties.getOverdueWeekly()) % dingProperties.getOverdueWeeklyDay() == 0);
 
             List<String> recipients = resolveEightClockRecipients(record, overdueDays, weeklyOverdueNotice, managerCache);
             if (recipients.isEmpty()) {
@@ -115,11 +97,11 @@ public class ReviewNotificationServiceImpl {
             }
         }
 
-        sendEightClockBuckets(nearExpiredByRecipient, "以下评审单即将截止，请您尽快处理！", "near_expired_last_sent", today, now, false,
+        sendEightClockBuckets(nearExpiredByRecipient, dingProperties.getAdviceMdTemplate("near_expired"), "near_expired_last_sent", today, now, false,
                 true);
         // 春风组织架构接口不可用
-        sendEightClockBuckets(overdueByRecipient, "以下评审单已超期，请您尽快处理！", "overdue_last_sent", today, now, true,
-                today.getDayOfWeek() == dayOfWeekMap.getOrDefault(overdueWeeklyDay, java.time.DayOfWeek.MONDAY));
+        sendEightClockBuckets(overdueByRecipient, dingProperties.getAdviceMdTemplate("overdue"), "overdue_last_sent", today, now, true,
+                false);
 
         long endTime = System.currentTimeMillis();
         log.info("每日定时任务完成，总耗时: {}ms，处理记录数: {}条", endTime - startTime, records.size());
@@ -140,8 +122,8 @@ public class ReviewNotificationServiceImpl {
 
             long overdueDays = calcOverdueDays(record.deadline, today);
 
-            // 只处理 1~8 天的超期提醒，超出范围的记录交给其他机制处理。
-            if (overdueDays <= 0 || overdueDays > overdueWeekly) {
+            // 只处理 1~overdueWeekly 天的超期提醒，超出范围的记录交给其他机制处理。
+            if (overdueDays <= 0 || overdueDays > dingProperties.getOverdueWeekly()) {
                 continue;
             }
 
@@ -152,8 +134,12 @@ public class ReviewNotificationServiceImpl {
 
             // 负责人和评审人
             List<String> recipients = new ArrayList<>();
-            recipients.addAll(record.moderatorIds);
-            recipients.addAll(record.reviewerIds);
+            if (dingProperties.shouldNotifyRole("moderator")) {
+                recipients.addAll(record.moderatorIds);
+            }
+            if (dingProperties.shouldNotifyRole("reviewer")) {
+                recipients.addAll(record.reviewerIds);
+            }
             recipients = recipients.stream().filter(s -> s != null && !s.isBlank()).distinct()
                     .collect(Collectors.toList());
             if (recipients.isEmpty()) {
@@ -176,7 +162,7 @@ public class ReviewNotificationServiceImpl {
         }
 
         // 11. 设置消息标题
-        String title = "以下评审单已超期，请您尽快处理！";
+        String title = dingProperties.getAdviceMdTemplate("overdue");
         // 获取当前时间，用于更新最后发送时间
         LocalDateTime now = LocalDateTime.now();
         // 12. 遍历每个收件人的分组数据，发送消息
@@ -188,11 +174,11 @@ public class ReviewNotificationServiceImpl {
                 continue;
             }
 
-            String markdown = buildOverdueMarkdown(overdueGroups, false);
-            // 14. 发送钉钉消息
-            DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
-            if (resp != null && resp.getErrcode() == 0) {
-                log.info("超期轮询钉钉消息已发送, taskId={},userId={}", resp.getTaskId(), userId);
+            String markdown = buildOverdueMarkdown(overdueGroups);
+            // 14. 发送钉钉机器人消息
+            DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
+            if (resp != null) {  // HTTP 200 即成功
+                log.info("超期轮询机器人消息已发送, userId={}", userId);
                 // 15. 更新每条记录的最后发送时间，用于后续去重
                 overdueGroups.values().stream().flatMap(List::stream).distinct()
                         .forEach(r -> repository.updateLastSent(r.reviewId, "overdue_last_sent", now));
@@ -259,7 +245,7 @@ public class ReviewNotificationServiceImpl {
             // 检查是否已存在数据库记录
             ReviewRecord existing = dbRecordMap.get(reviewId);
 
-            // 🔧 关键修复：如果存在现有记录，保留重要字段
+            // 如果存在现有记录，保留重要字段
             if (existing != null) {
                 // 保留最后发送时间
                 record.overdueLastSent = existing.overdueLastSent;
@@ -284,8 +270,8 @@ public class ReviewNotificationServiceImpl {
             dbRecordMap.put(reviewId, record);
             // 如果是新增记录，则添加新建通知
             if (existing == null) {
-                addLifecycleNotify(lifecycleBuckets, "NEW", buildRecipients(record, false),
-                        new LifecycleNotify(reviewId, safe(record.reviewName)));
+                addLifecycleNotify(lifecycleBuckets, "NEW", buildRecipients(record),
+                        new LifecycleNotify(reviewId, record.reviewName));
             }
         }
 
@@ -299,23 +285,23 @@ public class ReviewNotificationServiceImpl {
 
             if (canceledIds.contains(reviewId)) {
                 // CANCELED状态：发送取消通知
-                addLifecycleNotify(lifecycleBuckets, "CANCELED", buildRecipients(dbRecord, true),
-                        new LifecycleNotify(reviewId, safe(dbRecord.reviewName)));
+                addLifecycleNotify(lifecycleBuckets, "CANCELED", buildRecipients(dbRecord),
+                        new LifecycleNotify(reviewId, dbRecord.reviewName));
                 toDeleteIds.add(reviewId);
                 // log.debug("评审已取消：reviewId={}, name={}", reviewId, safe(dbRecord.reviewName));
             } else if (!openIds.contains(reviewId)) {
                 // CLOSED状态：既不在OPEN列表中也不在CANCELED列表中
-                addLifecycleNotify(lifecycleBuckets, "CLOSED", buildRecipients(dbRecord, true),
-                        new LifecycleNotify(reviewId, safe(dbRecord.reviewName)));
+                addLifecycleNotify(lifecycleBuckets, "CLOSED", buildRecipients(dbRecord),
+                        new LifecycleNotify(reviewId, dbRecord.reviewName));
                 toDeleteIds.add(reviewId);
                 // log.debug("评审已关闭：reviewId={}, name={}", reviewId, safe(dbRecord.reviewName));
             }
         }
 
         // 6. 发送通知
-        sendLifecycleBuckets(lifecycleBuckets, "NEW", "有以下评审单需要您处理！", repository::updateNewNotified);
-        sendLifecycleBuckets(lifecycleBuckets, "CANCELED", "以下评审单已取消！", repository::updateCancelNotified);
-        sendLifecycleBuckets(lifecycleBuckets, "CLOSED", "以下评审单已关闭！", repository::updateCloseNotified);
+        sendLifecycleBuckets(lifecycleBuckets, "NEW", dingProperties.getAdviceMdTemplate("new"), repository::updateNewNotified);
+        sendLifecycleBuckets(lifecycleBuckets, "CANCELED", dingProperties.getAdviceMdTemplate("canceled"), repository::updateCancelNotified);
+        sendLifecycleBuckets(lifecycleBuckets, "CLOSED", dingProperties.getAdviceMdTemplate("closed"), repository::updateCloseNotified);
 
         // 7. 批量删除已关闭/已取消的记录
         if (!toDeleteIds.isEmpty()) {
@@ -339,13 +325,10 @@ public class ReviewNotificationServiceImpl {
     }
 
     /**
-     * 添加生命周期通知到对应的分组
      *
-     * <p>
-     * 将生命周期通知按事件类型和收件人分组，便于后续批量发送。
-     * 同一个收件人的多条通知会被合并到同一个列表中。
      *
      * @param lifecycleBuckets 生命周期通知的分组映射
+     *                         eventType-->recipient-->notify
      * @param eventType        事件类型（NEW/CLOSED/CANCELED）
      * @param recipients       收件人列表
      * @param notify           评审单
@@ -368,19 +351,21 @@ public class ReviewNotificationServiceImpl {
      * 构建评审记录的收件人列表
      *
      * @param record           评审记录
-     * @param includeSubmitter 是否包含提交人
      * @return 过滤后的收件人列表（去重、非空）
      */
-    private List<String> buildRecipients(ReviewRecord record, boolean includeSubmitter) {
+    private List<String> buildRecipients(ReviewRecord record) {
         if (record == null) {
             return List.of();
         }
         List<String> recipients = new ArrayList<>();
-        recipients.addAll(record.moderatorIds);
-        recipients.addAll(record.reviewerIds);
-        recipients.addAll(record.viewerIds);
-        if (includeSubmitter && record.submitterId != null && !record.submitterId.isBlank()) {
-            recipients.add(record.submitterId);
+        if (dingProperties.shouldNotifyRole("moderator")) {
+            recipients.addAll(record.moderatorIds);
+        }
+        if (dingProperties.shouldNotifyRole("reviewer")) {
+            recipients.addAll(record.reviewerIds);
+        }
+        if (dingProperties.shouldNotifyRole("viewer")) {
+            recipients.addAll(record.viewerIds);
         }
         return recipients.stream().filter(s -> s != null && !s.isBlank()).distinct().collect(Collectors.toList());
     }
@@ -429,15 +414,15 @@ public class ReviewNotificationServiceImpl {
             }
             try {
                 // 检查发送结果
-                DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
+                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
 
-                if (resp != null && resp.getErrcode() == 0) { // 仅当成功时更新
+                if (resp != null) {  // HTTP 200 即成功
                     for (LifecycleNotify item : items) {
                         notifiedUpdater.accept(item.reviewId, true);
                     }
-                    log.info("评审生命周期通知已发送: taskId={}, userId={}, eventType={}, count={}",
-                            resp.getTaskId(), userId, eventType, items.size());
-                } 
+                    log.info("评审生命周期通知已发送: userId={}, eventType={}, count={}",
+                            userId, eventType, items.size());
+                }
             } catch (Exception e) {
                 log.error("生命周期通知发送异常: userId={}, error={}", userId, e.getMessage());
             }
@@ -558,28 +543,61 @@ public class ReviewNotificationServiceImpl {
             return recipients;
         }
         // 临期只通知moderator、reviewer
-        if (overdueDays <= 0 && Math.abs(overdueDays) < nearExpiredDefault) {
-            recipients.addAll(record.moderatorIds);
-            recipients.addAll(record.reviewerIds);
+        if (overdueDays <= 0 && Math.abs(overdueDays) < dingProperties.getNearExpiredDefault()) {
+            if (dingProperties.shouldNotifyRole("moderator")) {
+                recipients.addAll(record.moderatorIds);
+            }
+            if (dingProperties.shouldNotifyRole("reviewer")) {
+                recipients.addAll(record.reviewerIds);
+            }
         }
-        // 超期超过 weekly：仅周一通知科长+部长+总监+moderator+reviewer
+        // 超期超过 weekly：通知科长+部长+总监+moderator+reviewer
         else if (weeklyOverdueNotice) {
-            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
-            recipients.addAll(record.moderatorIds);
-            recipients.addAll(record.reviewerIds);
+            if (dingProperties.shouldNotifyRole("sectionManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
+            }
+            if (dingProperties.shouldNotifyRole("departmentManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "departmentManager"));
+            }
+            if (dingProperties.shouldNotifyRole("director")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "director"));
+            }
+            if (dingProperties.shouldNotifyRole("moderator")) {
+                recipients.addAll(record.moderatorIds);
+            }
+            if (dingProperties.shouldNotifyRole("reviewer")) {
+                recipients.addAll(record.reviewerIds);
+            }
         }
         // 超期 <= overdue-minister-default,每天通知科长
-        else if (overdueDays <= overdueMinisterDefault) {
-            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
+        else if (overdueDays <= dingProperties.getOverdueMinisterDefault()) {
+            if (dingProperties.shouldNotifyRole("sectionManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
+            }
         }
         // 超期 <= overdue-director-default,每天通知科长+部长
-        else if (overdueDays <= overdueDirectorDefault) {
-            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager"));
+        else if (overdueDays <= dingProperties.getOverdueDirectorDefault()) {
+            if (dingProperties.shouldNotifyRole("sectionManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
+            }
+            if (dingProperties.shouldNotifyRole("departmentManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "departmentManager"));
+            }
         }
-        // 超期 <= overdue-weekly,每天通知科长+部长+总监
-        else {
-            recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager", "departmentManager", "director"));
+        // 超期 <= overdue-weekly,每天通知科长+部长+总监 (≤8天)
+        else if (overdueDays <= dingProperties.getOverdueWeekly()) {
+            if (dingProperties.shouldNotifyRole("sectionManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "sectionManager"));
+            }
+            if (dingProperties.shouldNotifyRole("departmentManager")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "departmentManager"));
+            }
+            if (dingProperties.shouldNotifyRole("director")) {
+                recipients.addAll(resolveManagerRecipients(record, managerCache, "director"));
+            }
         }
+        // 超期 > overdue-weekly：不在此处处理，只在 weeklyOverdueNotice 为 true 时处理
+        // 否则不通知任何人
         return recipients.stream().filter(s -> s != null && !s.isBlank()).distinct().collect(Collectors.toList());
     }
 
@@ -696,20 +714,6 @@ public class ReviewNotificationServiceImpl {
                 continue;
             }
 
-            // 诊断日志：记录分组详情
-            int totalRecords = grouped.values().stream().mapToInt(List::size).sum();
-            int sentTodayCount = 0;
-            for (List<ReviewRecord> records : grouped.values()) {
-                for (ReviewRecord record : records) {
-                    String sentTime = getSentTime(record, sentField);
-                    if (sentTime != null && !sentTime.isBlank() && alreadySentToday(sentTime, today)) {
-                        sentTodayCount++;
-                    }
-                }
-            }
-            log.info("分组详情：收件人={}, 总记录数={}, 今天已发送数={}, 未发送数={}",
-                    userId, totalRecords, sentTodayCount, totalRecords - sentTodayCount);
-
             // 方案A：过滤出今天未发送的记录，重新分组
             Map<Long, List<ReviewRecord>> filteredGrouped = new TreeMap<>();
             for (Map.Entry<Long, List<ReviewRecord>> dayGroup : grouped.entrySet()) {
@@ -735,17 +739,17 @@ public class ReviewNotificationServiceImpl {
             }
 
             // 构建并发送消息
-            String markdown = overdueMode ? buildOverdueMarkdown(filteredGrouped, redLabelMode)
+            String markdown = overdueMode ? buildOverdueMarkdown(filteredGrouped)
                     : buildNearExpiredMarkdown(filteredGrouped, redLabelMode);
             try {
-                DingMessageResponse resp = dingService.sendMessage(userId, title, markdown);
-                if (resp != null && resp.getErrcode() == 0) {
+                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
+                if (resp != null) {  // HTTP 200 即成功
                     List<Long> reviewIds = filteredGrouped.values().stream()
                             .flatMap(List::stream)
                             .map(r -> r.reviewId)
                             .distinct()
                             .collect(Collectors.toList());
-                    log.info("每日{}定时任务钉钉消息已发送, taskId={}, userId={}, reviewIds={}", overdueMode ? "超期" : "临期", resp.getTaskId(),userId, reviewIds);
+                    log.info("每日{}定时任务机器人消息已发送, userId={}, reviewIds={}", overdueMode ? "超期" : "临期", userId, reviewIds);
 
                     // 只更新过滤后记录的发送时间
                     for (List<ReviewRecord> group : filteredGrouped.values()) {
@@ -756,7 +760,7 @@ public class ReviewNotificationServiceImpl {
                 }
 
             } catch (Exception e) {
-                log.error("每日定时任务-钉钉通知发送失败. userId={}, title={}, reviewCount={}", userId, title,
+                log.error("每日定时任务-机器人通知发送失败. userId={}, title={}, reviewCount={}", userId, title,
                         filteredGrouped.values().stream().mapToInt(List::size).sum(), e);
             }
         }
@@ -780,18 +784,21 @@ public class ReviewNotificationServiceImpl {
 
     /**
      * 生成超期提醒的 markdown 内容，按超期天数分组展示。
+     * 超过overdue-weekly天的超期通知自动显示红色标签
      */
-    private String buildOverdueMarkdown(Map<Long, List<ReviewRecord>> overdueGroups, boolean redLabelMode) {
-        StringBuilder sb = new StringBuilder("以下评审单已超期，请您尽快处理！\n");
+    private String buildOverdueMarkdown(Map<Long, List<ReviewRecord>> overdueGroups) {
+        String title = dingProperties.getAdviceMdTemplate("overdue");
+        StringBuilder sb = new StringBuilder(title).append("\n");
         for (Map.Entry<Long, List<ReviewRecord>> entry : overdueGroups.entrySet()) {
             Long days = entry.getKey();
             String label = "超期 " + days + " 天";
-            if (redLabelMode) {
+            // 超过overdue-weekly天的超期通知显示红色
+            if (days > dingProperties.getOverdueWeekly()) {
                 label = "<font color=\"red\">" + label + "</font>";
             }
             sb.append("\n### ").append(label).append("\n");
             for (ReviewRecord record : entry.getValue()) {
-                sb.append("- ").append(buildReviewLine(record.reviewName, buildReviewUrl(record.reviewId)))
+                sb.append("- ").append(buildReviewLine(record.reviewName, buildReviewUrl(record.reviewId), record))
                         .append("\n");
             }
         }
@@ -804,7 +811,7 @@ public class ReviewNotificationServiceImpl {
     private String buildLifecycleMarkdown(String title, List<LifecycleNotify> items) {
         StringBuilder sb = new StringBuilder(title).append("\n");
         for (LifecycleNotify item : items) {
-            sb.append("- ").append(buildReviewLine(item.reviewName, buildReviewUrl(item.reviewId))).append("\n");
+            sb.append("- ").append(buildReviewSingleLine(item.reviewName, buildReviewUrl(item.reviewId))).append("\n");
         }
         return sb.toString();
     }
@@ -816,7 +823,7 @@ public class ReviewNotificationServiceImpl {
         StringBuilder sb = new StringBuilder(title).append("\n");
         for (LifecycleNotify item : items) {
             long reviewId = item.reviewId;
-            sb.append("- ").append(buildReviewLine(item.reviewName, buildReviewUrl(reviewId))).append("\n");
+            sb.append("- ").append(buildReviewSingleLine(item.reviewName, buildReviewUrl(reviewId))).append("\n");
 
             try {
                 ReviewStatisticsResponse stats = cbSwaggerService.getReviewStatistics(String.valueOf(reviewId));
@@ -862,10 +869,11 @@ public class ReviewNotificationServiceImpl {
     }
 
     /**
-     * 生成临期提醒的 markdown 内容，按“还有 X 天截止/今天截止”分组展示。
+     * 生成临期提醒的 markdown 内容，按”还有 X 天截止/今天截止”分组展示。
      */
     private String buildNearExpiredMarkdown(Map<Long, List<ReviewRecord>> nearExpiredGroups, boolean redTodayMode) {
-        StringBuilder sb = new StringBuilder("以下评审单即将截止，请您尽快处理！\n");
+        String title = dingProperties.getAdviceMdTemplate("near_expired");
+        StringBuilder sb = new StringBuilder(title).append("\n");
         for (Map.Entry<Long, List<ReviewRecord>> entry : nearExpiredGroups.entrySet()) {
             Long days = entry.getKey();
             String label = days == null || days == 0 ? "今天截止" : "还有" + days + "天截止";
@@ -874,7 +882,7 @@ public class ReviewNotificationServiceImpl {
             }
             sb.append("\n### ").append(label).append("\n");
             for (ReviewRecord record : entry.getValue()) {
-                sb.append("- ").append(buildReviewLine(record.reviewName, buildReviewUrl(record.reviewId)))
+                sb.append("- ").append(buildReviewLine(record.reviewName, buildReviewUrl(record.reviewId), record))
                         .append("\n");
             }
         }
@@ -883,9 +891,54 @@ public class ReviewNotificationServiceImpl {
 
     /**
      * 统一生成评审单的 markdown 链接格式，避免各处拼接不一致。
+     * 根据配置决定是否展示审查者信息和截止时间
      */
-    private String buildReviewLine(String reviewName, String reviewUrl) {
-        return "[" + safe(reviewName) + "](" + reviewUrl + ")";
+    private String buildReviewLine(String reviewName, String reviewUrl, ReviewRecord record) {
+        StringBuilder line = new StringBuilder();
+        line.append(buildReviewSingleLine(reviewName, reviewUrl)).append("\n");
+
+        // 根据配置决定是否展示审查者信息 (is-moderator) - 使用真实姓名
+        if (dingProperties.getIsModerator() == 1 && record.moderatorIds != null && !record.moderatorIds.isEmpty()) {
+            line.append("  - 主持人：");
+            List<String> hostNames = new ArrayList<>();
+            for (String userId : record.moderatorIds) {
+                if (userId != null && !userId.isBlank()) {
+                    String realName = dingService.getUserInfo(userId);
+                    if (realName != null && !realName.isBlank()) {
+                        hostNames.add(realName);
+                    } else {
+                        hostNames.add(userId); // 降级显示ID
+                    }
+                }
+            }
+            line.append(String.join(",", hostNames)).append("\n");
+        }
+
+        // 根据配置决定是否展示dealine (is-dealine) - 格式化日期为MM月dd日 HH:mm
+        if (dingProperties.getIsDealine() == 1 && record.deadline != null && !record.deadline.isBlank()) {
+            line.append("  - 截止日期：");
+            try {
+                if (record.deadline.length() >= 16) {
+                    String month = record.deadline.substring(5, 7);
+                    String day = record.deadline.substring(8, 10);
+                    String hour = record.deadline.substring(11, 13);
+                    String minute = record.deadline.substring(14, 16);
+                    line.append(month).append("月").append(day).append("日 ").append(hour).append(":").append(minute);
+                } else {
+                    line.append(record.deadline);
+                }
+            } catch (Exception e) {
+                line.append(record.deadline); // 降级显示原格式
+            }
+            line.append("\n");
+        }
+
+        return line.toString();
+    }
+
+    // 兼容旧调用的简化版本
+    private String buildReviewSingleLine(String reviewName, String reviewUrl) {
+        return "[" + reviewName + "](" + reviewUrl + ")";
     }
 
     /**
@@ -894,10 +947,6 @@ public class ReviewNotificationServiceImpl {
     private String buildReviewUrl(long reviewId) {
         // 统一通过配置拼接详情页地址，避免消息文案里出现硬编码链接。
         return reviewProperties.getLinkPrefix() + reviewId;
-    }
-
-    private String safe(String s) {
-        return s == null ? "" : s;
     }
 
     private static class LifecycleNotify {

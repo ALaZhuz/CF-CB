@@ -1,6 +1,7 @@
 package org.example.service;
 
 import org.example.model.dto.response.DingMessageResponse;
+import org.example.model.dto.response.DingRobotMessageResponse;
 
 /**
  * 钉钉服务接口
@@ -38,6 +39,8 @@ public interface DingService {
      */
     DingMessageResponse sendMessage(String userIds, String title, String markdown);
 
+
+
     /**
      * 根据工号获取钉钉用户信息，目前只返回name
      * @param userId
@@ -72,4 +75,17 @@ public interface DingService {
      * @return true表示用户存在
      */
     boolean checkUserExists(String userid);
+
+    /**
+     * 发送机器人消息
+     *
+     * 使用钉钉机器人API发送markdown消息给指定用户。
+     * HTTP状态码200视为成功，无效用户和限流用户作为警告记录。
+     *
+     * @param userId 接收用户ID（单个用户）
+     * @param title 消息标题
+     * @param markdown Markdown内容
+     * @return 响应对象，包含无效用户列表、限流用户列表等信息；异常时返回null
+     */
+    DingRobotMessageResponse sendRobotMessage(String userId, String title, String markdown);
 }
