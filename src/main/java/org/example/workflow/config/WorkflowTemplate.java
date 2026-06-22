@@ -36,13 +36,16 @@ public class WorkflowTemplate {
         /** 状态名称，与Codebeamer中的状态名称对应 */
         private String name;
 
-        /** 通知字段名称，如 assignedTo、submitter、自定义字段等 */
-        private String notifyField;
+        /** 即时通知字段列表（单值或列表） */
+        private List<String> notifyField;
 
-        /** 是否发送通知：false表示明确不通知，null且notifyField有值则发送通知 */
+        /** 定时通知字段列表（可选，默认继承 notifyField） */
+        private List<String> scheduledNotifyField;
+
+        /** 是否发送通知：false表示明确不通知 */
         private Boolean notify;
 
-        /** 是否启用定时通知：true表示开启定时通知，false表示关闭，默认true */
+        /** 是否启用定时通知：true表示开启定时通知 */
         private Boolean scheduledNotify;
     }
 }
