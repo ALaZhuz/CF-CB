@@ -204,26 +204,29 @@ public class WorkflowNotifyService {
         // 2. 获取字段名称映射（从 tracker schema API）
         Map<String, String> fieldNameMapping = cbSwaggerService.getTrackerFieldNameMapping(trackerId);
 
-        // 3. 获取通知成员显示名列表
-        String notifyMembersStr = members.stream()
-                .map(m -> {
-                    String userId = m.getUserId();
-                    if (userId != null && !userId.isEmpty()) {
-                        String realName = dingService.getUserInfo(userId);
-                        if (realName != null && !realName.isEmpty()) {
-                            return realName;
-                        }
-                    }
-                    return m.getDisplayName() != null ? m.getDisplayName() : m.getName();
-                })
-                .collect(Collectors.joining(","));
+        // 3. 按字段分组显示成员（每个字段单独一行）
+        StringBuilder notifyFieldsContent = new StringBuilder();
+        for (String field : notifyFields) {
+            String fieldDisplayName = fieldNameMapping.getOrDefault(field, field);
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers != null && !fieldMembers.isEmpty()) {
+                String memberNames = fieldMembers.stream()
+                        .map(m -> {
+                            String userId = m.getUserId();
+                            if (userId != null && !userId.isEmpty()) {
+                                String realName = dingService.getUserInfo(userId);
+                                if (realName != null && !realName.isEmpty()) {
+                                    return realName;
+                                }
+                            }
+                            return m.getDisplayName() != null ? m.getDisplayName() : m.getName();
+                        })
+                        .collect(Collectors.joining(","));
+                notifyFieldsContent.append(fieldDisplayName).append(": ").append(memberNames).append("\n");
+            }
+        }
 
-        // 4. 获取所有通知字段的显示名称拼接
-        String notifyFieldDisplayNames = notifyFields.stream()
-                .map(f -> fieldNameMapping.getOrDefault(f, f))
-                .collect(Collectors.joining(","));
-
-        // 5. 获取 extra-fields 值
+        // 4. 获取 extra-fields 值
         List<ExtraField> extraFields = workflowConfigService.getExtraFields(projectId, trackerId);
         StringBuilder extraFieldsContent = new StringBuilder();
         for (ExtraField extraField : extraFields) {
@@ -236,11 +239,15 @@ public class WorkflowNotifyService {
             }
         }
 
-        // 6. 构建消息
+        // 5. 构建消息
         StringBuilder message = new StringBuilder();
         message.append(trackerTypeDisplay).append("名称: ").append(itemInfo.getName() != null ? itemInfo.getName() : "").append("\n");
         message.append(trackerTypeDisplay).append("状态: ").append(targetState != null ? targetState : "").append("，请您处理\n");
-        message.append(notifyFieldDisplayNames).append(": ").append(notifyMembersStr).append("\n");
+
+        // 6. 插入通知字段成员（每个字段单独一行）
+        if (notifyFieldsContent.length() > 0) {
+            message.append(notifyFieldsContent);
+        }
 
         // 7. 插入 extra-fields
         if (extraFieldsContent.length() > 0) {
