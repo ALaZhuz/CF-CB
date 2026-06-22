@@ -340,22 +340,34 @@ if (beforeEvent) {
             return;
         }
 
-        logger.info("所有字段都是内置字段: $notifyFields")
-
-        // Step 3: 从subject提取所有字段的成员信息（合并去重）
+        // Step 3: 从subject提取内置字段的成员信息（合并去重）
+        // 自定义字段由 Java 服务端在 afterEvent 时处理
         Set<String> allUserIds = new LinkedHashSet<String>()
         List<String> allMemberNames = new ArrayList<String>()
+        List<String> builtInFieldsFound = new ArrayList<String>()
 
         for (String field : notifyFields) {
-            List<String> fieldUserIds = getMemberUserIds(subject, field)
-            List<String> fieldNames = getMemberNames(subject, field)
-            allUserIds.addAll(fieldUserIds)
-            allMemberNames.addAll(fieldNames)
+            if (builtInFields.contains(field)) {
+                // 只提取内置字段的成员
+                List<String> fieldUserIds = getMemberUserIds(subject, field)
+                List<String> fieldNames = getMemberNames(subject, field)
+                allUserIds.addAll(fieldUserIds)
+                allMemberNames.addAll(fieldNames)
+                builtInFieldsFound.add(field)
+            } else {
+                logger.info("跳过自定义字段提取: $field (由Java服务端处理)")
+            }
+        }
+
+        // 如果没有内置字段，跳过校验（全部由 Java 服务端处理）
+        if (builtInFieldsFound.isEmpty()) {
+            logger.info("所有字段都是自定义字段($notifyFields)，跳过beforeEvent校验，直接放行")
+            return;
         }
 
         List<String> userIds = allUserIds.toList()
 
-        logger.info("提取成员信息: notifyFields=$notifyFields, userIds=$userIds, names=$allMemberNames")
+        logger.info("提取内置字段成员: builtInFields=$builtInFieldsFound, userIds=$userIds, names=$allMemberNames")
 
         // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
