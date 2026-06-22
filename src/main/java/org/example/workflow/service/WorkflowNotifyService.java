@@ -166,6 +166,12 @@ public class WorkflowNotifyService {
                 }
             }
 
+            // 发送通知成功后，更新 last_notify_time
+            if (!notifiedUsers.isEmpty()) {
+                itemStateRecordMapper.updateLastNotifyTime(itemId, LocalDateTime.now());
+                log.debug("[afterEvent] 更新last_notify_time: itemId={}", itemId);
+            }
+
             // 返回响应
             response.setSuccess(true);
             response.setNotifiedUsers(notifiedUsers);
@@ -375,6 +381,9 @@ public class WorkflowNotifyService {
 
     /**
      * 保存条目状态记录
+     *
+     * lastNotifyTime 初始为 null，表示从未发送通知。
+     * 只有在发送通知成功后才更新该字段。
      */
     private void saveItemStateRecord(Integer itemId, String itemName,
                                       Integer trackerId, String trackerType, Integer projectId, String targetState) {
@@ -386,10 +395,10 @@ public class WorkflowNotifyService {
         record.setProjectId(projectId);
         record.setTargetState(targetState);
         record.setEnterStateTime(LocalDateTime.now());
-        record.setLastNotifyTime(LocalDateTime.now());
+        record.setLastNotifyTime(null);  // 初始为 null，表示从未发送通知
 
         itemStateRecordMapper.insert(record);
-        log.debug("保存状态记录: itemId={}, trackerType={}", itemId, trackerType);
+        log.debug("保存状态记录: itemId={}, trackerType={}, lastNotifyTime=null", itemId, trackerType);
     }
 
     /**

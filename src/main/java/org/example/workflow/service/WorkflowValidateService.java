@@ -14,10 +14,12 @@ import org.example.workflow.dto.ValidateResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Collectors;
 
 /**
@@ -204,9 +206,25 @@ public class WorkflowValidateService {
                 return response;
             }
 
-            // 6. 校验通知字段是否有成员（遍历所有通知字段）
+            // 6. 区分内置字段和自定义字段，只校验内置字段是否有成员
             List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
             response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
+
+            // 内置字段列表
+            List<String> builtInFields = Arrays.asList("assignedTo", "supervisors", "submitter", "createdBy", "modifiedBy");
+
+            // 筛选出内置字段
+            List<String> builtInNotifyFields = notifyFields.stream()
+                    .filter(builtInFields::contains)
+                    .collect(Collectors.toList());
+
+            // 如果没有内置字段，跳过成员校验（全部是自定义字段）
+            if (builtInNotifyFields.isEmpty()) {
+                log.info("[beforeEvent] 所有通知字段都是自定义字段({}), 跳过成员校验", notifyFields);
+                response.setSuccess(true);
+                response.setErrorMessage(null);
+                return response;
+            }
 
             List<String> userids;
             List<String> memberNames;
@@ -216,10 +234,10 @@ public class WorkflowValidateService {
                 userids = request.getNotifyUserIds();
                 memberNames = request.getNotifyMemberNames();
             } else if (itemInfo != null) {
-                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取（合并所有通知字段成员）
-                List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, notifyFields);
+                // 兼容旧逻辑：只获取内置字段的成员
+                List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, builtInNotifyFields);
                 if (members == null || members.isEmpty()) {
-                    response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
+                    response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                     return response;
                 }
                 userids = members.stream()
@@ -230,12 +248,13 @@ public class WorkflowValidateService {
                         .map(m -> m.getName() != null ? m.getName() : m.getUserId())
                         .collect(Collectors.toList());
             } else {
-                response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
+            // 只校验内置字段的成员是否为空
             if (userids == null || userids.isEmpty()) {
-                response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
