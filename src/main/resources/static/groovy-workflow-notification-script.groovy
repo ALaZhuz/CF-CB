@@ -330,16 +330,6 @@ if (beforeEvent) {
         // 内置字段列表
         List<String> builtInFields = ["assignedTo", "supervisors", "submitter", "createdBy", "modifiedBy"]
 
-        // 检查是否都是内置字段
-        boolean allBuiltIn = notifyFields.every { field -> builtInFields.contains(field) }
-
-        if (!allBuiltIn) {
-            // 包含自定义字段：跳过 beforeEvent 校验
-            // 校验由 Java 服务端在 afterEvent 时通过 API 获取完整数据后处理
-            logger.info("包含自定义字段($notifyFields)，跳过beforeEvent校验，直接放行")
-            return;
-        }
-
         // Step 3: 从subject提取内置字段的成员信息（合并去重）
         // 自定义字段由 Java 服务端在 afterEvent 时处理
         Set<String> allUserIds = new LinkedHashSet<String>()
