@@ -354,6 +354,28 @@ public class WorkflowConfigService {
     }
 
     /**
+     * 获取定时通知字段列表
+     * 默认继承 notifyField（向后兼容）
+     *
+     * @param stateConfig 状态配置
+     * @return 字段列表
+     */
+    public List<String> getScheduledNotifyFields(WorkflowTemplate.StateConfig stateConfig) {
+        if (stateConfig == null) {
+            return new ArrayList<>();
+        }
+
+        // 1. 显式配置了 scheduledNotifyField，使用它
+        List<String> scheduledFields = stateConfig.getScheduledNotifyField();
+        if (scheduledFields != null && !scheduledFields.isEmpty()) {
+            return scheduledFields;
+        }
+
+        // 2. 默认继承 notifyField（向后兼容）
+        return getNotifyFields(stateConfig);
+    }
+
+    /**
      * 判断状态是否需要通知
      *
      * @param stateConfig 状态配置

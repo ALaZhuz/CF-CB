@@ -571,4 +571,51 @@ class WorkflowConfigServiceTest {
 
         assertEquals(0, result.size());
     }
+
+    @Test
+    void testGetScheduledNotifyFields_ExplicitConfig() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setScheduledNotifyField(List.of("submitter"));
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("submitter", result.get(0));
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_InheritFromNotifyField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+        stateConfig.setScheduledNotifyField(null); // 未配置
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("assignedTo", result.get(0));
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_ExplicitOverridesInheritance() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+        stateConfig.setScheduledNotifyField(List.of("submitter")); // 显式配置
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("submitter", result.get(0)); // 使用显式配置，不继承
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_MultipleFields() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setScheduledNotifyField(List.of("assignedTo", "submitter"));
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(2, result.size());
+        assertEquals("assignedTo", result.get(0));
+        assertEquals("submitter", result.get(1));
+    }
 }
