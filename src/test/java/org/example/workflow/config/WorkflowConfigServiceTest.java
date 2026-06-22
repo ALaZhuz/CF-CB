@@ -57,7 +57,7 @@ class WorkflowConfigServiceTest {
 
         WorkflowTemplate.StateConfig state2 = new WorkflowTemplate.StateConfig();
         state2.setName("处理中");
-        state2.setNotifyField("assignedTo");
+        state2.setNotifyField(List.of("assignedTo"));
 
         WorkflowTemplate.StateConfig state3 = new WorkflowTemplate.StateConfig();
         state3.setName("已关闭");
@@ -96,7 +96,7 @@ class WorkflowConfigServiceTest {
 
         WorkflowTemplate.StateConfig projectState = new WorkflowTemplate.StateConfig();
         projectState.setName("处理中");
-        projectState.setNotifyField("projectAssignedTo");
+        projectState.setNotifyField(List.of("projectAssignedTo"));
         projectWorkflow.setStates(Collections.singletonList(projectState));
 
         project.setWorkflows(Collections.singletonList(projectWorkflow));
@@ -273,7 +273,7 @@ class WorkflowConfigServiceTest {
         // 配置了notifyField
         WorkflowTemplate.StateConfig config1 = new WorkflowTemplate.StateConfig();
         config1.setName("处理中");
-        config1.setNotifyField("assignedTo");
+        config1.setNotifyField(List.of("assignedTo"));
         assertTrue(workflowConfigService.shouldNotify(config1));
 
         // notify=false
@@ -310,7 +310,7 @@ class WorkflowConfigServiceTest {
         // Tracker直接定义状态配置
         WorkflowTemplate.StateConfig directState = new WorkflowTemplate.StateConfig();
         directState.setName("特殊状态");
-        directState.setNotifyField("specialField");
+        directState.setNotifyField(List.of("specialField"));
 
         ProjectConfig.TrackerConfig trackerConfig = new ProjectConfig.TrackerConfig();
         trackerConfig.setTrackerId(111);
@@ -324,7 +324,7 @@ class WorkflowConfigServiceTest {
         assertNotNull(result);
         assertEquals(1, result.getStates().size());
         assertEquals("特殊状态", result.getStates().get(0).getName());
-        assertEquals("specialField", result.getStates().get(0).getNotifyField());
+        assertEquals(List.of("specialField"), result.getStates().get(0).getNotifyField());
     }
 
     /**
@@ -519,6 +519,49 @@ class WorkflowConfigServiceTest {
 
         // tracker级空列表，返回空列表
         List<ExtraField> result = workflowConfigService.getExtraFields(100, 111);
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetNotifyFields_SingleField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("assignedTo", result.get(0));
+    }
+
+    @Test
+    void testGetNotifyFields_MultipleFields() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo", "supervisors"));
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(2, result.size());
+        assertEquals("assignedTo", result.get(0));
+        assertEquals("supervisors", result.get(1));
+    }
+
+    @Test
+    void testGetNotifyFields_EmptyField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(new ArrayList<>());
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetNotifyFields_NullField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(null);
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
         assertEquals(0, result.size());
     }
 }

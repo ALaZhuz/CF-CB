@@ -339,6 +339,21 @@ public class WorkflowConfigService {
     }
 
     /**
+     * 获取即时通知字段列表
+     *
+     * @param stateConfig 状态配置
+     * @return 字段列表，未配置返回空列表
+     */
+    public List<String> getNotifyFields(WorkflowTemplate.StateConfig stateConfig) {
+        if (stateConfig == null) {
+            return new ArrayList<>();
+        }
+
+        List<String> fields = stateConfig.getNotifyField();
+        return fields != null ? fields : new ArrayList<>();
+    }
+
+    /**
      * 判断状态是否需要通知
      *
      * @param stateConfig 状态配置
