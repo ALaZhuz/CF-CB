@@ -644,4 +644,35 @@ class WorkflowConfigServiceTest {
         assertEquals("assignedTo", result.get(0));
         assertEquals("submitter", result.get(1));
     }
+
+    /**
+     * 向后兼容性测试：仅配置 notify-field 的旧YAML配置
+     *
+     * 模拟现有YAML配置（未配置 scheduled-notify-field）的场景：
+     * - getNotifyFields 应返回单字段
+     * - getScheduledNotifyFields 应继承 notifyField
+     * - shouldNotify 应与旧行为一致
+     */
+    @Test
+    @DisplayName("向后兼容：仅配置 notify-field 的旧YAML配置")
+    void testBackwardCompatibility_SingleNotifyField() {
+        // Simulate existing YAML config: notify-field: "assignedTo"
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo")); // Spring converts String to List
+        stateConfig.setScheduledNotify(true);
+        stateConfig.setScheduledNotifyField(null); // Not configured
+
+        // getNotifyFields should return single field
+        List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
+        assertEquals(1, notifyFields.size());
+        assertEquals("assignedTo", notifyFields.get(0));
+
+        // getScheduledNotifyFields should inherit notifyField
+        List<String> scheduledFields = workflowConfigService.getScheduledNotifyFields(stateConfig);
+        assertEquals(1, scheduledFields.size());
+        assertEquals("assignedTo", scheduledFields.get(0));
+
+        // shouldNotify should work as before
+        assertTrue(workflowConfigService.shouldNotify(stateConfig));
+    }
 }
