@@ -94,13 +94,15 @@ public class WorkflowValidateService {
             if (!workflowConfigService.shouldNotify(stateConfig)) {
                 response.setNeedsNotify(false);
                 response.setNotifyField(null);
+                response.setNotifyFields(null);  // 新增
                 return response;
             }
 
-            // 6. 返回notifyField（合并为逗号分隔字符串，向后兼容单值API契约）
+            // 6. 返回notifyField（同时返回列表和逗号分隔字符串，向后兼容）
             List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
             response.setNeedsNotify(true);
             response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
+            response.setNotifyFields(notifyFields);  // 新增：返回列表供Groovy脚本使用
 
         } catch (Exception e) {
             log.error("查询notifyField异常: trackerId={}, error={}", trackerId, e.getMessage(), e);

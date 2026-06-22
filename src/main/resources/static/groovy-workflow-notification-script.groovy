@@ -313,33 +313,54 @@ if (beforeEvent) {
             return;
         }
 
-        // Step 2: 判断是否是自定义字段
-        String notifyField = configResponse.notifyField
+        // Step 2: 解析 notifyFields（支持多字段）
+        // 新增字段 notifyFields（列表），兼容旧字段 notifyField（逗号分隔字符串）
+        List<String> notifyFields = []
+
+        if (configResponse.notifyFields != null && !configResponse.notifyFields.isEmpty()) {
+            // 使用新增的 notifyFields 列表
+            notifyFields = configResponse.notifyFields
+            logger.info("使用notifyFields列表: $notifyFields")
+        } else if (configResponse.notifyField != null && !configResponse.notifyField.isEmpty()) {
+            // 兼容旧版：解析逗号分隔字符串
+            notifyFields = configResponse.notifyField.split(",").toList()
+            logger.info("从notifyField解析: $notifyFields")
+        }
 
         // 内置字段列表
-        boolean isBuiltInField = "assignedTo".equals(notifyField) ||
-                                  "supervisors".equals(notifyField) ||
-                                  "submitter".equals(notifyField) ||
-                                  "createdBy".equals(notifyField) ||
-                                  "modifiedBy".equals(notifyField)
+        List<String> builtInFields = ["assignedTo", "supervisors", "submitter", "createdBy", "modifiedBy"]
 
-        if (!isBuiltInField) {
-            // 自定义字段：跳过 beforeEvent 校验，直接放行
+        // 检查是否都是内置字段
+        boolean allBuiltIn = notifyFields.every { field -> builtInFields.contains(field) }
+
+        if (!allBuiltIn) {
+            // 包含自定义字段：跳过 beforeEvent 校验
             // 校验由 Java 服务端在 afterEvent 时通过 API 获取完整数据后处理
-            logger.info("自定义字段($notifyField)跳过beforeEvent校验，直接放行")
+            logger.info("包含自定义字段($notifyFields)，跳过beforeEvent校验，直接放行")
             return;
         }
 
-        // Step 3: 从subject提取成员信息（待保存的新数据）- 仅内置字段
-        List<String> userIds = getMemberUserIds(subject, notifyField)
-        List<String> memberNames = getMemberNames(subject, notifyField)
+        logger.info("所有字段都是内置字段: $notifyFields")
 
-        logger.info("提取成员信息: notifyField=$notifyField, userIds=$userIds, names=$memberNames")
+        // Step 3: 从subject提取所有字段的成员信息（合并去重）
+        Set<String> allUserIds = new LinkedHashSet<String>()
+        List<String> allMemberNames = new ArrayList<String>()
+
+        for (String field : notifyFields) {
+            List<String> fieldUserIds = getMemberUserIds(subject, field)
+            List<String> fieldNames = getMemberNames(subject, field)
+            allUserIds.addAll(fieldUserIds)
+            allMemberNames.addAll(fieldNames)
+        }
+
+        List<String> userIds = allUserIds.toList()
+
+        logger.info("提取成员信息: notifyFields=$notifyFields, userIds=$userIds, names=$allMemberNames")
 
         // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
         def userIdsJson = userIds.isEmpty() ? "[]" : "[" + userIds.collect { "\"$it\"" }.join(",") + "]"
-        def namesJson = memberNames.isEmpty() ? "[]" : "[" + memberNames.collect { "\"$it\"" }.join(",") + "]"
+        def namesJson = allMemberNames.isEmpty() ? "[]" : "[" + allMemberNames.collect { "\"$it\"" }.join(",") + "]"
 
         def validateRequest
         if (isNewItem) {
