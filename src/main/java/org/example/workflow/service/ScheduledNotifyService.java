@@ -7,6 +7,7 @@ import org.example.db.entity.NotifyLog;
 import org.example.db.mapper.ItemStateRecordMapper;
 import org.example.db.mapper.NotifyLogMapper;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.enums.MsgKeyConstant;
 import org.example.service.CBSwaggerService;
 import org.example.service.DingService;
 import org.example.workflow.cache.OrgCacheService;
@@ -460,7 +461,7 @@ public class ScheduledNotifyService {
 
                 try {
                     // 使用 markdown 消息类型，支持链接点击
-                    dingService.sendMessage(userid, "定时通知提醒", message);
+                    dingService.sendRobotMessage(userid, "定时通知提醒", message, MsgKeyConstant.SAMPLE_MARKDOWN);
                     log.info("成员通知发送成功: itemId={}, userid={}, 消息内容=\n{}", data.itemId, userid, message);
                     saveNotifyLog(data.itemId, userid, "定时成员", "成功");
                     count++;
@@ -515,7 +516,7 @@ public class ScheduledNotifyService {
             String message = formatCrossItemAggregatedMessage(items, "科长");
             try {
                 // 使用 markdown 消息类型，支持链接点击
-                dingService.sendMessage(managerId, "定时通知提醒", message);
+                dingService.sendRobotMessage(managerId, "定时通知提醒", message, MsgKeyConstant.SAMPLE_MARKDOWN);
                 log.info("科长聚合通知发送成功: managerId={}, 条目数={}, 消息内容=\n{}", managerId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, managerId, "定时科长", "成功");
@@ -568,7 +569,7 @@ public class ScheduledNotifyService {
             String message = formatCrossItemAggregatedMessage(items, "部长");
             try {
                 // 使用 markdown 消息类型，支持链接点击
-                dingService.sendMessage(directorId, "定时通知提醒", message);
+                dingService.sendRobotMessage(directorId, "定时通知提醒", message, MsgKeyConstant.SAMPLE_MARKDOWN);
                 log.info("部长聚合通知发送成功: directorId={}, 条目数={}, 消息内容=\n{}", directorId, items.size(), message);
                 for (ItemNotifyData data : items) {
                     saveNotifyLog(data.itemId, directorId, "定时部长", "成功");

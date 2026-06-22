@@ -7,6 +7,7 @@ import org.example.db.entity.NotifyLog;
 import org.example.db.mapper.ItemStateRecordMapper;
 import org.example.db.mapper.NotifyLogMapper;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.enums.MsgKeyConstant;
 import org.example.service.CBSwaggerService;
 import org.example.service.DingService;
 import org.example.workflow.config.ExtraField;
@@ -154,7 +155,7 @@ public class WorkflowNotifyService {
                 }
 
                 try {
-                    dingService.sendTextMessage(userid, messageContent);
+                    dingService.sendRobotMessage(userid, null, messageContent, MsgKeyConstant.SAMPLE_TEXT);
                     notifiedUsers.add(userid);
                     saveNotifyLog(itemId, userid, "即时", "成功");
                 } catch (Exception e) {

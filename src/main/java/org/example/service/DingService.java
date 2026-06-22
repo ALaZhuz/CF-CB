@@ -22,26 +22,6 @@ public interface DingService {
     String getAccessToken();
 
     /**
-     * 发送ActionCard消息（企业钉钉）
-     *
-     * @param userIds 接收用户ID列表，逗号分隔
-     * @param title 消息标题
-     * @param markdown Markdown内容
-     * @param singleTitle 按钮标题
-     * @param singleUrl 按钮跳转链接
-     */
-    void sendMessage(String userIds, String title, String markdown, String singleTitle, String singleUrl);
-    /**
-     * 发送钉钉消息
-      * @param userIds 接收人id，逗号分隔
-      * @param title 消息标题
-      * @param markdown 消息内容，markdown格式
-     */
-    DingMessageResponse sendMessage(String userIds, String title, String markdown);
-
-
-
-    /**
      * 根据工号获取钉钉用户信息，目前只返回name
      * @param userId
      * @return
@@ -49,22 +29,12 @@ public interface DingService {
     String getUserInfo(String userId);
 
     /**
-     * 发送纯文本消息
-     *
-     * 根据配置的模式选择企业钉钉或个人钉钉Webhook发送。
-     *
-     * @param userIds 接收用户ID列表，逗号分隔（企业钉钉模式使用）
-     * @param content 文本内容
-     */
-    void sendTextMessage(String userIds, String content);
-
-    /**
      * 查询组织管理者
      *
      * @param employeeId 员工ID
      * @return 管理者ID列表，逗号分隔
      */
-    String queryOrganizationManager(String employeeId);
+//    String queryOrganizationManager(String employeeId);
 
     /**
      * 校验用户userid在钉钉中是否存在
@@ -83,9 +53,10 @@ public interface DingService {
      * HTTP状态码200视为成功，无效用户和限流用户作为警告记录。
      *
      * @param userId 接收用户ID（单个用户）
-     * @param title 消息标题
-     * @param markdown Markdown内容
-     * @return 响应对象，包含无效用户列表、限流用户列表等信息；异常时返回null
+     * @param title 消息标题（sampleMarkdown时使用，sampleText时可为null）
+     * @param content 消息内容（sampleText时为纯文本，sampleMarkdown时为Markdown格式）
+     * @param msgKey 消息类型：sampleText 或 sampleMarkdown
+     * @return 响应对象；HTTP非200或异常时返回null
      */
-    DingRobotMessageResponse sendRobotMessage(String userId, String title, String markdown);
+    DingRobotMessageResponse sendRobotMessage(String userId, String title, String content, String msgKey);
 }

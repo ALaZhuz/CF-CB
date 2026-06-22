@@ -42,6 +42,7 @@ dingtalk:
   app-key: dingen7uf61izibidx34
   app-secret: oRrTEcxXX-BmtTouwsDBH_6lR4mIe5hHQ9QtTDG2cvD0uJlARHzIk_RuujvlIzmD
   agent-id: 4182157252
+  robotCode: dingen7uf61izibidx34
   # 春风
   client-base-url-prefix: http://10.32.4.50:10600/papi/openapi
   corp-id: 9420b0c0840fc1e421c4d045d50c3dc
@@ -52,15 +53,53 @@ dingtalk:
   overdue-minister-default: 3
   # 超期*天提醒总监
   overdue-director-default: 5
-  # 超期*天后一周提醒1次
+  # 超期 overdue-weekly 天后 overdue-weekly-day 提醒1次
   overdue-weekly: 8
-  # 超期overdue-weekly天后周几提醒
-  overdue-weekly-day: 4
+  # 超期 overdue-weekly 天后 overdue-weekly-day 提醒1次
+  overdue-weekly-day: 7
   # 每天定时任务提醒，默认8点
-  notify-cron: "0 0 13 * * ?"
+  notify-cron: "0 58 16 * * ?"
   # 轮询任务，默认30分钟
 #  fixed-delay: 1800000
   fixed-delay: 180000
+
+  # 通知临期/超期卡片上是否展示审查者信息,1-true,0-false
+  is-moderator: 1
+  # 通知临期/超期卡片上是否展示dealine,1-true,0-false
+  is-dealine: 1
+
+  
+  # 评审dingtalk通知内容配置
+  advice-md:
+    # 新建
+    new: "您有新的评审单待处理，请及时登录系统查看!"
+    # 取消
+    canceled: "您的评审单已取消!"
+    # 关闭
+    closed: "您的评审单已关闭!"
+    # 超期
+    overdue: "您参与的评审单还未被主持人关闭，请尽快完成评审，如果已经完成，请忽略这条信息，谢谢!"
+    # 临期
+    near_expired: "您参与的评审单还未被主持人关闭，请尽快在最后期限前完成评审，如果已经完成，请忽略这条信息，谢谢!"
+    
+  # 配置是否对角色进行通知,1-true,0-false
+  # 取消/关闭/新建：默认通知审查、审阅、查看
+  # 临期：默认通知审阅、审查
+  # 超期：默认通知审阅、审查、科长、部长、总监
+  is-advice-role:
+    # 审查方
+    moderator: 1
+    # 审阅者
+    reviewer: 1
+    # 查看者
+    viewer: 1
+    # 科长
+    sectionManager: 1
+    # 部长
+    departmentManager: 1
+    # 总监
+    director: 1
+
 
 server:
   port: 8081

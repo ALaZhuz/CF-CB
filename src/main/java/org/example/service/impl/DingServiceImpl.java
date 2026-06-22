@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.config.DingProperties;
-import org.example.model.dto.response.DingMessageResponse;
 import org.example.model.dto.response.DingRobotMessageResponse;
 import org.example.service.DingService;
 import org.springframework.http.*;
@@ -46,89 +45,6 @@ public class DingServiceImpl implements DingService {
         req.put("appSecret", dingProperties.getAppSecret());
         Map<?, ?> resp = postForObject(dingProperties.getAccessTokenUrl(), req, Map.class);
         return resp == null || resp.get("accessToken") == null ? "" : resp.get("accessToken").toString();
-    }
-
-    @Override
-    public void sendMessage(String userIds, String title, String markdown, String singleTitle, String singleUrl) {
-
-    }
-
-    /**
-     * 发送ActionCard消息（企业钉钉）
-     *
-     * @param userIds 接收用户ID列表，逗号分隔
-     * @param title 消息标题
-     * @param markdown Markdown内容
-     */
-
-    public DingMessageResponse sendMessage(String userIds, String title, String markdown) {
-        String accessToken = getAccessToken();
-        Map<String, Object> actionCard = new HashMap<>();
-        actionCard.put("title", title);
-        actionCard.put("text", markdown);
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("msgtype", "markdown");
-        msg.put("markdown", actionCard);
-        Map<String, Object> req = new HashMap<>();
-        req.put("agent_id", Long.valueOf(dingProperties.getAgentId()));
-        req.put("userid_list", userIds);
-        req.put("to_all_user", false);
-        req.put("msg", msg);
-        Map<?, ?> resp = postForObject(dingProperties.getMessageUrl() + "?access_token=" + accessToken, req, Map.class);
-        Object errcode = resp != null ? resp.get("errcode") : null;
-        if (errcode != null && ((Number) errcode).intValue() == 0) {
-            // 安全转换字段
-            Integer errcodeInt = ((Number) resp.get("errcode")).intValue();
-            String errmsg = resp.get("errmsg").toString();
-            Long taskId = ((Number)resp.get("task_id")).longValue();
-            String requestId = resp.get("request_id").toString();
-            DingMessageResponse response = new DingMessageResponse(errcodeInt, errmsg, taskId, requestId);
-            return response;
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * 发送纯文本消息（企业钉钉）
-     *
-     * @param userIds 接收用户ID列表，逗号分隔
-     * @param content 文本内容
-     */
-    @Override
-    public void sendTextMessage(String userIds, String content) {
-        sendEnterpriseTextMessage(userIds, content);
-    }
-
-    @Override
-    public String queryOrganizationManager(String employeeId) {
-        return null;
-    }
-
-    /**
-     * 企业钉钉发送纯文本消息
-     *
-     * @param userIds 接收用户ID列表，逗号分隔
-     * @param content 文本内容
-     */
-    private void sendEnterpriseTextMessage(String userIds, String content) {
-        String accessToken = getAccessToken();
-
-        Map<String, Object> text = new HashMap<>();
-        text.put("content", content);
-
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("msgtype", "text");
-        msg.put("text", text);
-
-        Map<String, Object> req = new HashMap<>();
-        req.put("agent_id", Long.valueOf(dingProperties.getAgentId()));
-        req.put("userid_list", userIds);
-        req.put("to_all_user", false);
-        req.put("msg", msg);
-
-        postForObject(dingProperties.getMessageUrl() + "?access_token=" + accessToken, req, Map.class);
-        log.info("企业钉钉发送文本消息成功, userIds={}", userIds);
     }
 
     /**
@@ -278,7 +194,7 @@ public class DingServiceImpl implements DingService {
      * @return 响应对象；HTTP非200或异常时返回null
      */
     @Override
-    public DingRobotMessageResponse sendRobotMessage(String userId, String title, String markdown) {
+    public DingRobotMessageResponse sendRobotMessage(String userId, String title, String markdown, String msgKey) {
         try {
             String accessToken = getAccessToken();
             String url = dingProperties.getBaseUrlPrefix() + "/v1.0/robot/oToMessages/batchSend";
@@ -287,15 +203,25 @@ public class DingServiceImpl implements DingService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("x-acs-dingtalk-access-token", accessToken);
 
-            // 构建请求体
+            // 栄据消息类型构建不同的 msgParam
             Map<String, Object> msgParam = new HashMap<>();
-            msgParam.put("text", markdown);
-            msgParam.put("title", title);
+            if ("sampleText".equals(msgKey)) {
+                // sampleText: 只需要 content
+                msgParam.put("content", markdown);
+            } else if ("sampleMarkdown".equals(msgKey)) {
+                // sampleMarkdown: 需要 title 和 text
+                msgParam.put("title", title);
+                msgParam.put("text", markdown);
+            } else {
+                // 默认使用 markdown 格式
+                msgParam.put("title", title);
+                msgParam.put("text", markdown);
+            }
 
             Map<String, Object> req = new HashMap<>();
             req.put("robotCode", dingProperties.getRobotCode());
             req.put("userIds", Collections.singletonList(userId));
-            req.put("msgKey", "sampleMarkdown");
+            req.put("msgKey", msgKey);
             req.put("msgParam", objectMapper.writeValueAsString(msgParam));
 
             HttpEntity<Object> entity = new HttpEntity<>(req, headers);
@@ -308,17 +234,17 @@ public class DingServiceImpl implements DingService {
 
                 if (result != null) {
                     // 打印无效用户列表和限流用户列表
-                    if (result.getInvalidStaffIdList() != null && !result.getInvalidStaffIdList().isEmpty()) {
-                        log.warn("机器人消息发送-无效用户: userId={}, invalidStaffIdList={}",
-                            userId, result.getInvalidStaffIdList());
-                    }
-                    if (result.getFlowControlledStaffIdList() != null && !result.getFlowControlledStaffIdList().isEmpty()) {
-                        log.warn("机器人消息发送-被限流用户: userId={}, flowControlledStaffIdList={}",
-                            userId, result.getFlowControlledStaffIdList());
-                    }
-
-                    log.info("机器人消息发送成功: userId={}, processQueryKey={}",
-                        userId, result.getProcessQueryKey());
+//                    if (result.getInvalidStaffIdList() != null && !result.getInvalidStaffIdList().isEmpty()) {
+//                        log.warn("ALM机器人消息发送-无效用户: userId={}, invalidStaffIdList={}",
+//                            userId, result.getInvalidStaffIdList());
+//                    }
+//                    if (result.getFlowControlledStaffIdList() != null && !result.getFlowControlledStaffIdList().isEmpty()) {
+//                        log.warn("ALM机器人消息发送-被限流用户: userId={}, flowControlledStaffIdList={}",
+//                            userId, result.getFlowControlledStaffIdList());
+//                    }
+//
+//                    log.info("机器人消息发送成功: userId={}, processQueryKey={}",
+//                        userId, result.getProcessQueryKey());
 
                     return result;
                 }

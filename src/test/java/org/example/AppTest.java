@@ -55,7 +55,7 @@ class AppTest {
 
     @Test
     void testDingMessageSend(){
-        dingService.sendMessage("271824611524632704", "Test Title1", "Test Markdown1");
+//        dingService.sendMessage("271824611524632704", "Test Title1", "Test Markdown1");
     }
 
     @Test

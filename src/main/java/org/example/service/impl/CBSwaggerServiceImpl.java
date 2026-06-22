@@ -1049,7 +1049,8 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("advancedFilterCbQL", " ORDER BY submittedAt DESC");
+//        CB3.1有该参数，CB3.0无
+//        requestBody.put("advancedFilterCbQL", " ORDER BY submittedAt DESC");
 
         HttpHeaders headers = httpHelper.getAuthHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -1071,7 +1072,8 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
 
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("advancedFilterCbQL", " ORDER BY modifiedAt DESC");
+//        CB3.1有该参数，CB3.0无
+//        requestBody.put("advancedFilterCbQL", " ORDER BY modifiedAt DESC");
 
         HttpHeaders headers = httpHelper.getAuthHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

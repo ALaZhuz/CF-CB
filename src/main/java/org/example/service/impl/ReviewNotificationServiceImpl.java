@@ -107,6 +107,9 @@ public class ReviewNotificationServiceImpl {
         log.info("每日定时任务完成，总耗时: {}ms，处理记录数: {}条", endTime - startTime, records.size());
     }
 
+    /**
+     * 通知审阅、审查
+     */
     public void runThirtyMinuteTasks() {
         log.info("查询评审超期轮询任务开启");
         List<ReviewRecord> records = repository.findOpenRecords();
@@ -176,19 +179,26 @@ public class ReviewNotificationServiceImpl {
 
             String markdown = buildOverdueMarkdown(overdueGroups);
             // 14. 发送钉钉机器人消息
-            DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
-            if (resp != null) {  // HTTP 200 即成功
-                log.info("超期轮询机器人消息已发送, userId={}", userId);
-                // 15. 更新每条记录的最后发送时间，用于后续去重
-                overdueGroups.values().stream().flatMap(List::stream).distinct()
-                        .forEach(r -> repository.updateLastSent(r.reviewId, "overdue_last_sent", now));
+            DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown, "sampleMarkdown");
+            if (resp != null) {
+                // 消息发送是否有效
+                if (resp.getFilteredStaffIdList().isEmpty() && resp.getInvalidStaffIdList().isEmpty() && resp.getFlowControlledStaffIdList().isEmpty()) {
+                    log.info("超期轮询机器人消息发送成功, userId={}", userId);
+                    // 15. 更新每条记录的最后发送时间，用于后续去重
+                    overdueGroups.values().stream().flatMap(List::stream).distinct()
+                            .forEach(r -> repository.updateLastSent(r.reviewId, "overdue_last_sent", now));
+                } else {
+                    log.warn("超期轮询机器人消息发送有误, 接收用户={}, 被过滤用户={}, 无效用户={}, 被限流用户={}",
+                            userId, resp.getFilteredStaffIdList(), resp.getInvalidStaffIdList(), resp.getFlowControlledStaffIdList());
+                }
+                
             }
 
         }
     }
 
     /**
-     * 处理评审新建、取消、关闭
+     * 处理评审新建、取消、关闭，通知审阅、审查、查看三者
      * 同步sqlite，只保存OPEN评审
      * 逻辑：通过对比OPEN评审列表、CANCELED评审列表和数据库OPEN记录，推导出评审状态变化
      * 1. 在OPEN列表中 -> OPEN状态（新增或更新）
@@ -414,7 +424,7 @@ public class ReviewNotificationServiceImpl {
             }
             try {
                 // 检查发送结果
-                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
+                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown, "sampleMarkdown");
 
                 if (resp != null) {  // HTTP 200 即成功
                     for (LifecycleNotify item : items) {
@@ -742,7 +752,7 @@ public class ReviewNotificationServiceImpl {
             String markdown = overdueMode ? buildOverdueMarkdown(filteredGrouped)
                     : buildNearExpiredMarkdown(filteredGrouped, redLabelMode);
             try {
-                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown);
+                DingRobotMessageResponse resp = dingService.sendRobotMessage(userId, title, markdown, "sampleMarkdown");
                 if (resp != null) {  // HTTP 200 即成功
                     List<Long> reviewIds = filteredGrouped.values().stream()
                             .flatMap(List::stream)
