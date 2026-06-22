@@ -564,4 +564,11 @@ class WorkflowConfigServiceTest {
 
         assertEquals(0, result.size());
     }
+
+    @Test
+    void testGetNotifyFields_NullStateConfig() {
+        List<String> result = workflowConfigService.getNotifyFields(null);
+
+        assertEquals(0, result.size());
+    }
 }
