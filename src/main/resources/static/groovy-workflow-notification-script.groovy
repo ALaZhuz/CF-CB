@@ -351,23 +351,25 @@ if (beforeEvent) {
                 // 只提取内置字段的成员
                 List<String> fieldUserIds = getMemberUserIds(subject, field)
                 List<String> fieldNames = getMemberNames(subject, field)
-                allUserIds.addAll(fieldUserIds)
-                allMemberNames.addAll(fieldNames)
-                builtInFieldsFound.add(field)
+
+                logger.info("内置字段[$field]提取结果: userIds=$fieldUserIds, names=$fieldNames")
+
+                if (fieldUserIds != null && !fieldUserIds.isEmpty()) {
+                    allUserIds.addAll(fieldUserIds)
+                    allMemberNames.addAll(fieldNames)
+                    builtInFieldsFound.add(field)
+                } else {
+                    logger.warn("内置字段[$field]无成员！")
+                }
             } else {
                 logger.info("跳过自定义字段提取: $field (由Java服务端处理)")
             }
         }
 
-        // 如果没有内置字段，跳过校验（全部由 Java 服务端处理）
-        if (builtInFieldsFound.isEmpty()) {
-            logger.info("所有字段都是自定义字段($notifyFields)，跳过beforeEvent校验，直接放行")
-            return;
-        }
-
+        // 如果没有内置字段有成员，直接校验（让Java服务端返回错误）
         List<String> userIds = allUserIds.toList()
 
-        logger.info("提取内置字段成员: builtInFields=$builtInFieldsFound, userIds=$userIds, names=$allMemberNames")
+        logger.info("内置字段成员汇总: builtInFields=$builtInFieldsFound, userIds=$userIds, names=$allMemberNames")
 
         // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
