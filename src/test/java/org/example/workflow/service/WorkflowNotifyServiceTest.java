@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -103,7 +104,7 @@ class WorkflowNotifyServiceTest {
         // 构建状态配置
         stateConfig = new WorkflowTemplate.StateConfig();
         stateConfig.setName("处理中");
-        stateConfig.setNotifyField("assignedTo");
+        stateConfig.setNotifyField(List.of("assignedTo"));
     }
 
     /**
@@ -150,7 +151,7 @@ class WorkflowNotifyServiceTest {
         // previousState配置（需要通知）
         WorkflowTemplate.StateConfig previousStateConfig = new WorkflowTemplate.StateConfig();
         previousStateConfig.setName("处理中");
-        previousStateConfig.setNotifyField("assignedTo");
+        previousStateConfig.setNotifyField(List.of("assignedTo"));
 
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
@@ -231,6 +232,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         // Mock type-mappings and extra-fields
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
@@ -280,6 +282,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
 
@@ -324,6 +327,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
 
         NotifyResponse response = workflowNotifyService.notify(request);
 
@@ -382,6 +386,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         when(workflowConfigService.getTypeMapping(eq("Bug"), anyInt())).thenReturn("智驾缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.singletonList(extraField));
 //        doNothing().when(dingService).sendTextMessage(anyString(), anyString());

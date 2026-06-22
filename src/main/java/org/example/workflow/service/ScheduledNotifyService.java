@@ -409,10 +409,10 @@ public class ScheduledNotifyService {
             return null;
         }
 
-        String notifyField = stateConfig.getNotifyField();
-        List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+        List<String> notifyFields = workflowConfigService.getScheduledNotifyFields(stateConfig);
+        List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, notifyFields);
         if (members == null || members.isEmpty()) {
-            log.debug("通知字段无成员, itemId={}, notifyField={}", itemId, notifyField);
+            log.debug("通知字段无成员, itemId={}, notifyFields={}", itemId, notifyFields);
             return null;
         }
 
@@ -721,6 +721,37 @@ public class ScheduledNotifyService {
         }
         // 兜底：使用原有显示名
         return member.getDisplayName() != null ? member.getDisplayName() : member.getName();
+    }
+
+    /**
+     * 合并多个通知字段的成员，按 userId 去重
+     *
+     * @param itemInfo 条目详情
+     * @param notifyFields 通知字段名称列表
+     * @return 合并去重后的成员列表
+     */
+    private List<ItemInfoResponse.MemberInfo> getMembersByFields(ItemInfoResponse itemInfo, List<String> notifyFields) {
+        if (itemInfo == null || notifyFields == null || notifyFields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 使用 LinkedHashMap 按 userId 去重，保留插入顺序
+        Map<String, ItemInfoResponse.MemberInfo> dedup = new LinkedHashMap<>();
+        for (String field : notifyFields) {
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers == null) {
+                continue;
+            }
+            for (ItemInfoResponse.MemberInfo member : fieldMembers) {
+                String key = member.getUserId();
+                if (key == null || key.isEmpty()) {
+                    dedup.put("NO_USERID_" + System.identityHashCode(member), member);
+                } else if (!dedup.containsKey(key)) {
+                    dedup.put(key, member);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
     }
 
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {

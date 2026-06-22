@@ -158,7 +158,7 @@ class WorkflowConfigServiceExtendedTest {
     void testGetScheduledNotify_DefaultTrue() {
         WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
         config.setName("处理中");
-        config.setNotifyField("assignedTo");
+        config.setNotifyField(List.of("assignedTo"));
         // scheduledNotify 未配置
 
         assertTrue(workflowConfigService.getScheduledNotify(config));
@@ -172,7 +172,7 @@ class WorkflowConfigServiceExtendedTest {
     void testGetScheduledNotify_ExplicitFalse() {
         WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
         config.setName("处理中");
-        config.setNotifyField("assignedTo");
+        config.setNotifyField(List.of("assignedTo"));
         config.setScheduledNotify(false);
 
         assertFalse(workflowConfigService.getScheduledNotify(config));
@@ -186,7 +186,7 @@ class WorkflowConfigServiceExtendedTest {
     void testGetScheduledNotify_ExplicitTrue() {
         WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
         config.setName("处理中");
-        config.setNotifyField("assignedTo");
+        config.setNotifyField(List.of("assignedTo"));
         config.setScheduledNotify(true);
 
         assertTrue(workflowConfigService.getScheduledNotify(config));

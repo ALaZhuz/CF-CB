@@ -297,6 +297,32 @@ class WorkflowConfigServiceTest {
     }
 
     /**
+     * 场景7.1: 多通知字段 - 需要通知
+     */
+    @Test
+    @DisplayName("多通知字段 - 需要通知")
+    void testShouldNotify_MultipleFields() {
+        WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
+        config.setName("处理中");
+        config.setNotifyField(List.of("assignedTo", "supervisors"));
+
+        assertTrue(workflowConfigService.shouldNotify(config));
+    }
+
+    /**
+     * 场景7.2: 通知字段列表为空 - 不需要通知
+     */
+    @Test
+    @DisplayName("通知字段列表为空 - 不需要通知")
+    void testShouldNotify_EmptyFieldList() {
+        WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
+        config.setName("处理中");
+        config.setNotifyField(new ArrayList<>());
+
+        assertFalse(workflowConfigService.shouldNotify(config));
+    }
+
+    /**
      * 场景8: Tracker直接定义状态配置（最高优先级）
      */
     @Test

@@ -14,7 +14,9 @@ import org.example.workflow.dto.ValidateResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -95,9 +97,10 @@ public class WorkflowValidateService {
                 return response;
             }
 
-            // 6. 返回notifyField
+            // 6. 返回notifyField（合并为逗号分隔字符串，向后兼容单值API契约）
+            List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
             response.setNeedsNotify(true);
-            response.setNotifyField(stateConfig.getNotifyField());
+            response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
 
         } catch (Exception e) {
             log.error("查询notifyField异常: trackerId={}, error={}", trackerId, e.getMessage(), e);
@@ -199,9 +202,9 @@ public class WorkflowValidateService {
                 return response;
             }
 
-            // 6. 校验通知字段是否有成员
-            String notifyField = stateConfig.getNotifyField();
-            response.setNotifyField(notifyField);
+            // 6. 校验通知字段是否有成员（遍历所有通知字段）
+            List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
+            response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
 
             List<String> userids;
             List<String> memberNames;
@@ -211,10 +214,10 @@ public class WorkflowValidateService {
                 userids = request.getNotifyUserIds();
                 memberNames = request.getNotifyMemberNames();
             } else if (itemInfo != null) {
-                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取
-                List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取（合并所有通知字段成员）
+                List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, notifyFields);
                 if (members == null || members.isEmpty()) {
-                    response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                    response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
                     return response;
                 }
                 userids = members.stream()
@@ -225,12 +228,12 @@ public class WorkflowValidateService {
                         .map(m -> m.getName() != null ? m.getName() : m.getUserId())
                         .collect(Collectors.toList());
             } else {
-                response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
             if (userids == null || userids.isEmpty()) {
-                response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", notifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
@@ -250,8 +253,8 @@ public class WorkflowValidateService {
             response.setSuccess(true);
             response.setErrorMessage(null);
             // 合并日志：一次校验只输出一条成功日志
-            log.info("[beforeEvent] 校验通过: itemId={}, trackerId={}, targetState={}, notifyField={}, members={}",
-                    itemId, trackerId, targetState, notifyField, memberNames);
+            log.info("[beforeEvent] 校验通过: itemId={}, trackerId={}, targetState={}, notifyFields={}, members={}",
+                    itemId, trackerId, targetState, notifyFields, memberNames);
 
         } catch (Exception e) {
             log.error("[beforeEvent] 校验异常: itemId={}, error={}", itemId, e.getMessage(), e);
@@ -259,5 +262,36 @@ public class WorkflowValidateService {
         }
 
         return response;
+    }
+
+    /**
+     * 合并多个通知字段的成员，按 userId 去重
+     *
+     * @param itemInfo 条目详情
+     * @param notifyFields 通知字段名称列表
+     * @return 合并去重后的成员列表
+     */
+    private List<ItemInfoResponse.MemberInfo> getMembersByFields(ItemInfoResponse itemInfo, List<String> notifyFields) {
+        if (itemInfo == null || notifyFields == null || notifyFields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 使用 LinkedHashMap 按 userId 去重，保留插入顺序
+        Map<String, ItemInfoResponse.MemberInfo> dedup = new LinkedHashMap<>();
+        for (String field : notifyFields) {
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers == null) {
+                continue;
+            }
+            for (ItemInfoResponse.MemberInfo member : fieldMembers) {
+                String key = member.getUserId();
+                if (key == null || key.isEmpty()) {
+                    dedup.put("NO_USERID_" + System.identityHashCode(member), member);
+                } else if (!dedup.containsKey(key)) {
+                    dedup.put(key, member);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
     }
 }

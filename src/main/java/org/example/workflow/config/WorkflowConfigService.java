@@ -392,8 +392,8 @@ public class WorkflowConfigService {
             return false;
         }
 
-        // 配置了notifyField，需要通知
-        return stateConfig.getNotifyField() != null && !stateConfig.getNotifyField().isEmpty();
+        // 配置了notifyField（非空列表），需要通知
+        return !getNotifyFields(stateConfig).isEmpty();
     }
 
     /**

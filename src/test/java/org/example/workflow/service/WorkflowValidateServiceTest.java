@@ -93,7 +93,7 @@ class WorkflowValidateServiceTest {
         // 构建状态配置
         stateConfig = new WorkflowTemplate.StateConfig();
         stateConfig.setName("处理中");
-        stateConfig.setNotifyField("assignedTo");
+        stateConfig.setNotifyField(List.of("assignedTo"));
     }
 
     /**
@@ -191,6 +191,8 @@ class WorkflowValidateServiceTest {
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
                 .thenReturn(true);
+        when(workflowConfigService.getNotifyFields(any(WorkflowTemplate.StateConfig.class)))
+                .thenReturn(List.of("assignedTo"));
 
         ValidateResponse response = workflowValidateService.validate(request);
 
@@ -225,6 +227,8 @@ class WorkflowValidateServiceTest {
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
                 .thenReturn(true);
+        when(workflowConfigService.getNotifyFields(any(WorkflowTemplate.StateConfig.class)))
+                .thenReturn(List.of("assignedTo"));
         when(dingUserCacheService.findInvalidUserIds(any(List.class)))
                 .thenReturn(new HashSet<>(Collections.singletonList("user456")));
 
@@ -264,6 +268,8 @@ class WorkflowValidateServiceTest {
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(any(WorkflowTemplate.StateConfig.class)))
                 .thenReturn(true);
+        when(workflowConfigService.getNotifyFields(any(WorkflowTemplate.StateConfig.class)))
+                .thenReturn(List.of("assignedTo"));
         when(dingUserCacheService.findInvalidUserIds(any(List.class)))
                 .thenReturn(new HashSet<>());
 
