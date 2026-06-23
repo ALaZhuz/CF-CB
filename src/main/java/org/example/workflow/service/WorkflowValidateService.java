@@ -14,8 +14,12 @@ import org.example.workflow.dto.ValidateResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Collectors;
 
 /**
@@ -92,12 +96,15 @@ public class WorkflowValidateService {
             if (!workflowConfigService.shouldNotify(stateConfig)) {
                 response.setNeedsNotify(false);
                 response.setNotifyField(null);
+                response.setNotifyFields(null);  // 新增
                 return response;
             }
 
-            // 6. 返回notifyField
+            // 6. 返回notifyField（同时返回列表和逗号分隔字符串，向后兼容）
+            List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
             response.setNeedsNotify(true);
-            response.setNotifyField(stateConfig.getNotifyField());
+            response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
+            response.setNotifyFields(notifyFields);  // 新增：返回列表供Groovy脚本使用
 
         } catch (Exception e) {
             log.error("查询notifyField异常: trackerId={}, error={}", trackerId, e.getMessage(), e);
@@ -199,9 +206,25 @@ public class WorkflowValidateService {
                 return response;
             }
 
-            // 6. 校验通知字段是否有成员
-            String notifyField = stateConfig.getNotifyField();
-            response.setNotifyField(notifyField);
+            // 6. 区分内置字段和自定义字段，只校验内置字段是否有成员
+            List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
+            response.setNotifyField(notifyFields.isEmpty() ? null : String.join(",", notifyFields));
+
+            // 内置字段列表
+            List<String> builtInFields = Arrays.asList("assignedTo", "supervisors", "submitter", "createdBy", "modifiedBy");
+
+            // 筛选出内置字段
+            List<String> builtInNotifyFields = notifyFields.stream()
+                    .filter(builtInFields::contains)
+                    .collect(Collectors.toList());
+
+            // 如果没有内置字段，跳过成员校验（全部是自定义字段）
+            if (builtInNotifyFields.isEmpty()) {
+                log.info("[beforeEvent] 所有通知字段都是自定义字段({}), 跳过成员校验", notifyFields);
+                response.setSuccess(true);
+                response.setErrorMessage(null);
+                return response;
+            }
 
             List<String> userids;
             List<String> memberNames;
@@ -211,10 +234,10 @@ public class WorkflowValidateService {
                 userids = request.getNotifyUserIds();
                 memberNames = request.getNotifyMemberNames();
             } else if (itemInfo != null) {
-                // 兼容旧逻辑：如果request中没有成员信息，从itemInfo获取
-                List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+                // 兼容旧逻辑：只获取内置字段的成员
+                List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, builtInNotifyFields);
                 if (members == null || members.isEmpty()) {
-                    response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                    response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                     return response;
                 }
                 userids = members.stream()
@@ -225,12 +248,13 @@ public class WorkflowValidateService {
                         .map(m -> m.getName() != null ? m.getName() : m.getUserId())
                         .collect(Collectors.toList());
             } else {
-                response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
+            // 只校验内置字段的成员是否为空
             if (userids == null || userids.isEmpty()) {
-                response.setErrorMessage("通知字段[" + notifyField + "]未填写成员，请先填写后再保存");
+                response.setErrorMessage("通知字段[" + String.join(",", builtInNotifyFields) + "]未填写成员，请先填写后再保存");
                 return response;
             }
 
@@ -250,8 +274,8 @@ public class WorkflowValidateService {
             response.setSuccess(true);
             response.setErrorMessage(null);
             // 合并日志：一次校验只输出一条成功日志
-            log.info("[beforeEvent] 校验通过: itemId={}, trackerId={}, targetState={}, notifyField={}, members={}",
-                    itemId, trackerId, targetState, notifyField, memberNames);
+            log.info("[beforeEvent] 校验通过: itemId={}, trackerId={}, targetState={}, notifyFields={}, members={}",
+                    itemId, trackerId, targetState, notifyFields, memberNames);
 
         } catch (Exception e) {
             log.error("[beforeEvent] 校验异常: itemId={}, error={}", itemId, e.getMessage(), e);
@@ -259,5 +283,36 @@ public class WorkflowValidateService {
         }
 
         return response;
+    }
+
+    /**
+     * 合并多个通知字段的成员，按 userId 去重
+     *
+     * @param itemInfo 条目详情
+     * @param notifyFields 通知字段名称列表
+     * @return 合并去重后的成员列表
+     */
+    private List<ItemInfoResponse.MemberInfo> getMembersByFields(ItemInfoResponse itemInfo, List<String> notifyFields) {
+        if (itemInfo == null || notifyFields == null || notifyFields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 使用 LinkedHashMap 按 userId 去重，保留插入顺序
+        Map<String, ItemInfoResponse.MemberInfo> dedup = new LinkedHashMap<>();
+        for (String field : notifyFields) {
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers == null) {
+                continue;
+            }
+            for (ItemInfoResponse.MemberInfo member : fieldMembers) {
+                String key = member.getUserId();
+                if (key == null || key.isEmpty()) {
+                    dedup.put("NO_USERID_" + System.identityHashCode(member), member);
+                } else if (!dedup.containsKey(key)) {
+                    dedup.put(key, member);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
     }
 }

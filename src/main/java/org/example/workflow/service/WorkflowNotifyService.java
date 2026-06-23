@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -131,18 +132,18 @@ public class WorkflowNotifyService {
             }
 
             // 需要即时通知 → 发送通知
-            String notifyField = targetStateConfig.getNotifyField();
-            List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+            List<String> notifyFields = workflowConfigService.getNotifyFields(targetStateConfig);
+            List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, notifyFields);
 
             if (members == null || members.isEmpty()) {
-                log.warn("[afterEvent] 通知字段无成员: itemId={}, notifyField={}", itemId, notifyField);
+                log.warn("[afterEvent] 通知字段无成员: itemId={}, notifyFields={}", itemId, notifyFields);
                 response.setSuccess(true);
                 response.setActionType("无成员");
                 return response;
             }
 
             // 格式化消息
-            String messageContent = formatMessage(itemInfo, targetState, notifyField, members, trackerType, projectId, trackerId);
+            String messageContent = formatMessage(itemInfo, targetState, notifyFields, members, trackerType, projectId, trackerId);
 
             // 发送通知
             List<String> notifiedUsers = new ArrayList<>();
@@ -165,14 +166,20 @@ public class WorkflowNotifyService {
                 }
             }
 
+            // 发送通知成功后，更新 last_notify_time
+            if (!notifiedUsers.isEmpty()) {
+                itemStateRecordMapper.updateLastNotifyTime(itemId, LocalDateTime.now());
+                log.debug("[afterEvent] 更新last_notify_time: itemId={}", itemId);
+            }
+
             // 返回响应
             response.setSuccess(true);
             response.setNotifiedUsers(notifiedUsers);
             response.setFailedUsers(failedUsers);
             response.setActionType("即时通知");
 
-            log.info("[afterEvent] 即时通知完成: itemId={}, targetState={}, 成功{}人, 失败{}人, notifyField={}, message=\n{}",
-                    itemId, targetState, notifiedUsers.size(), failedUsers.size(), notifyField, messageContent);
+            log.info("[afterEvent] 即时通知完成: itemId={}, targetState={}, 成功{}人, 失败{}人, notifyFields={}, message=\n{}",
+                    itemId, targetState, notifiedUsers.size(), failedUsers.size(), notifyFields, messageContent);
 
         } catch (Exception e) {
             log.error("[afterEvent] 处理异常: itemId={}, error={}", itemId, e.getMessage(), e);
@@ -187,7 +194,7 @@ public class WorkflowNotifyService {
      *
      * @param itemInfo 条目详情
      * @param targetState 目标状态
-     * @param notifyField 通知字段名称
+     * @param notifyFields 通知字段名称列表
      * @param members 通知成员列表
      * @param trackerType tracker类型名称
      * @param projectId 项目ID
@@ -195,29 +202,35 @@ public class WorkflowNotifyService {
      * @return 格式化后的消息内容
      */
     private String formatMessage(ItemInfoResponse itemInfo, String targetState,
-                                  String notifyField, List<ItemInfoResponse.MemberInfo> members,
+                                  List<String> notifyFields, List<ItemInfoResponse.MemberInfo> members,
                                   String trackerType, Integer projectId, Integer trackerId) {
         // 1. 获取 type-mapping
         String trackerTypeDisplay = workflowConfigService.getTypeMapping(trackerType, projectId);
 
         // 2. 获取字段名称映射（从 tracker schema API）
         Map<String, String> fieldNameMapping = cbSwaggerService.getTrackerFieldNameMapping(trackerId);
-        // 获取 notifyField 的显示名称
-        String notifyFieldDisplayName = fieldNameMapping.getOrDefault(notifyField, notifyField);
 
-        // 3. 获取通知成员显示名列表
-        String notifyMembersStr = members.stream()
-                .map(m -> {
-                    String userId = m.getUserId();
-                    if (userId != null && !userId.isEmpty()) {
-                        String realName = dingService.getUserInfo(userId);
-                        if (realName != null && !realName.isEmpty()) {
-                            return realName;
-                        }
-                    }
-                    return m.getDisplayName() != null ? m.getDisplayName() : m.getName();
-                })
-                .collect(Collectors.joining(","));
+        // 3. 按字段分组显示成员（每个字段单独一行）
+        StringBuilder notifyFieldsContent = new StringBuilder();
+        for (String field : notifyFields) {
+            String fieldDisplayName = fieldNameMapping.getOrDefault(field, field);
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers != null && !fieldMembers.isEmpty()) {
+                String memberNames = fieldMembers.stream()
+                        .map(m -> {
+                            String userId = m.getUserId();
+                            if (userId != null && !userId.isEmpty()) {
+                                String realName = dingService.getUserInfo(userId);
+                                if (realName != null && !realName.isEmpty()) {
+                                    return realName;
+                                }
+                            }
+                            return m.getDisplayName() != null ? m.getDisplayName() : m.getName();
+                        })
+                        .collect(Collectors.joining(","));
+                notifyFieldsContent.append(fieldDisplayName).append(": ").append(memberNames).append("\n");
+            }
+        }
 
         // 4. 获取 extra-fields 值
         List<ExtraField> extraFields = workflowConfigService.getExtraFields(projectId, trackerId);
@@ -236,17 +249,53 @@ public class WorkflowNotifyService {
         StringBuilder message = new StringBuilder();
         message.append(trackerTypeDisplay).append("名称: ").append(itemInfo.getName() != null ? itemInfo.getName() : "").append("\n");
         message.append(trackerTypeDisplay).append("状态: ").append(targetState != null ? targetState : "").append("，请您处理\n");
-        message.append(notifyFieldDisplayName).append(": ").append(notifyMembersStr).append("\n");
 
-        // 6. 插入 extra-fields
+        // 6. 插入通知字段成员（每个字段单独一行）
+        if (notifyFieldsContent.length() > 0) {
+            message.append(notifyFieldsContent);
+        }
+
+        // 7. 插入 extra-fields
         if (extraFieldsContent.length() > 0) {
             message.append(extraFieldsContent);
         }
 
-        // 7. 添加链接行
+        // 8. 添加链接行
         message.append(trackerTypeDisplay).append("链接: ").append(itemInfo.getItemLink() != null ? itemInfo.getItemLink() : "");
 
         return message.toString();
+    }
+
+    /**
+     * 合并多个通知字段的成员，按 userId 去重
+     *
+     * @param itemInfo 条目详情
+     * @param notifyFields 通知字段名称列表
+     * @return 合并去重后的成员列表
+     */
+    private List<ItemInfoResponse.MemberInfo> getMembersByFields(ItemInfoResponse itemInfo, List<String> notifyFields) {
+        if (itemInfo == null || notifyFields == null || notifyFields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 使用 LinkedHashMap 按 userId 去重，保留插入顺序
+        Map<String, ItemInfoResponse.MemberInfo> dedup = new LinkedHashMap<>();
+        for (String field : notifyFields) {
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers == null) {
+                continue;
+            }
+            for (ItemInfoResponse.MemberInfo member : fieldMembers) {
+                String key = member.getUserId();
+                if (key == null || key.isEmpty()) {
+                    // 无 userId 的成员无法去重，直接保留（避免被丢弃）
+                    dedup.put("NO_USERID_" + System.identityHashCode(member), member);
+                } else if (!dedup.containsKey(key)) {
+                    dedup.put(key, member);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
     }
 
     /**
@@ -332,6 +381,9 @@ public class WorkflowNotifyService {
 
     /**
      * 保存条目状态记录
+     *
+     * lastNotifyTime 初始为 null，表示从未发送通知。
+     * 只有在发送通知成功后才更新该字段。
      */
     private void saveItemStateRecord(Integer itemId, String itemName,
                                       Integer trackerId, String trackerType, Integer projectId, String targetState) {
@@ -343,10 +395,10 @@ public class WorkflowNotifyService {
         record.setProjectId(projectId);
         record.setTargetState(targetState);
         record.setEnterStateTime(LocalDateTime.now());
-        record.setLastNotifyTime(LocalDateTime.now());
+        record.setLastNotifyTime(null);  // 初始为 null，表示从未发送通知
 
         itemStateRecordMapper.insert(record);
-        log.debug("保存状态记录: itemId={}, trackerType={}", itemId, trackerType);
+        log.debug("保存状态记录: itemId={}, trackerType={}, lastNotifyTime=null", itemId, trackerType);
     }
 
     /**

@@ -318,13 +318,16 @@ public class ScheduledNotifyService {
     private List<ItemNotifyData> collectNotifyData(List<ItemStateRecord> itemsToNotify) {
         List<ItemNotifyData> result = new ArrayList<>();
 
+        // 收集分类字段未找到或值为空的所有 itemId（按 classifyField 分组）
+        Map<String, List<Integer>> missingClassifyFieldItems = new HashMap<>();
+
         for (ItemStateRecord record : itemsToNotify) {
             int retryCount = 0;
             int maxRetry = 3;
 
             while (retryCount < maxRetry) {
                 try {
-                    ItemNotifyData data = buildNotifyData(record);
+                    ItemNotifyData data = buildNotifyData(record, missingClassifyFieldItems);
                     if (data != null) {
                         result.add(data);
                     }
@@ -352,6 +355,15 @@ public class ScheduledNotifyService {
             }
         }
 
+        // 打印汇总日志：分类字段未找到或值为空的所有 itemId
+        for (Map.Entry<String, List<Integer>> entry : missingClassifyFieldItems.entrySet()) {
+            String classifyField = entry.getKey();
+            List<Integer> itemIds = entry.getValue();
+            if (!itemIds.isEmpty()) {
+                log.warn("分类字段未找到或值为空: classifyField={}, affectedItemIds={}", classifyField, itemIds);
+            }
+        }
+
         return result;
     }
 
@@ -359,8 +371,11 @@ public class ScheduledNotifyService {
      * 构建单个条目的通知数据
      *
      * 直接使用 ItemStateRecord 中存储的 trackerType 和 projectId，避免调用 tracker API
+     *
+     * @param record 条目状态记录
+     * @param missingClassifyFieldItems 收集分类字段未找到的 itemId（按 classifyField 分组）
      */
-    private ItemNotifyData buildNotifyData(ItemStateRecord record) {
+    private ItemNotifyData buildNotifyData(ItemStateRecord record, Map<String, List<Integer>> missingClassifyFieldItems) {
         Integer itemId = record.getItemId();
         Integer trackerId = record.getTrackerId();
         Integer projectId = record.getProjectId();
@@ -402,17 +417,17 @@ public class ScheduledNotifyService {
             return null;
         }
 
-        String classifyValue = getClassifyValue(itemInfo, classifyConfig.getClassifyField());
+        String classifyValue = getClassifyValue(itemInfo, classifyConfig.getClassifyField(), itemId, missingClassifyFieldItems);
         ClassifyRule classifyRule = workflowConfigService.matchClassifyRule(classifyValue, classifyConfig);
         if (classifyRule == null) {
             log.debug("未匹配分类规则, itemId={}, classifyValue={}", itemId, classifyValue);
             return null;
         }
 
-        String notifyField = stateConfig.getNotifyField();
-        List<ItemInfoResponse.MemberInfo> members = itemInfo.getMembersByField(notifyField);
+        List<String> notifyFields = workflowConfigService.getScheduledNotifyFields(stateConfig);
+        List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, notifyFields);
         if (members == null || members.isEmpty()) {
-            log.debug("通知字段无成员, itemId={}, notifyField={}", itemId, notifyField);
+            log.debug("通知字段无成员, itemId={}, notifyFields={}", itemId, notifyFields);
             return null;
         }
 
@@ -630,7 +645,7 @@ public class ScheduledNotifyService {
         return (int) ChronoUnit.DAYS.between(enterStateTime.toLocalDate(), LocalDate.now());
     }
 
-    private String getClassifyValue(ItemInfoResponse itemInfo, String classifyField) {
+    private String getClassifyValue(ItemInfoResponse itemInfo, String classifyField, Integer itemId, Map<String, List<Integer>> missingClassifyFieldItems) {
         if (classifyField == null || itemInfo == null) {
             return null;
         }
@@ -659,7 +674,8 @@ public class ScheduledNotifyService {
             }
         }
 
-        log.warn("分类字段未找到或值为空: classifyField={}", classifyField);
+        // 收集分类字段缺失的条目ID，后续统一打印汇总日志
+        missingClassifyFieldItems.computeIfAbsent(classifyField, k -> new ArrayList<>()).add(itemId);
         return null;
     }
 
@@ -704,7 +720,7 @@ public class ScheduledNotifyService {
                 : itemName;
 
         // 使用 trackerTypeDisplay 作为前缀，如 "问题【条目名称（可点击）】"
-        return String.format("您好，以下%s未及时处理，请知悉！\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
+        return String.format("您好，以下%s未及时处理，请知悉！\n\n%s【%s】，在【%s】状态下已【%d】天，负责人【%s】",
                 trackerTypeDisplay, trackerTypeDisplay, itemNameWithLink, itemInfo.getStatus(), stayDays, memberName);
     }
 
@@ -721,6 +737,37 @@ public class ScheduledNotifyService {
         }
         // 兜底：使用原有显示名
         return member.getDisplayName() != null ? member.getDisplayName() : member.getName();
+    }
+
+    /**
+     * 合并多个通知字段的成员，按 userId 去重
+     *
+     * @param itemInfo 条目详情
+     * @param notifyFields 通知字段名称列表
+     * @return 合并去重后的成员列表
+     */
+    private List<ItemInfoResponse.MemberInfo> getMembersByFields(ItemInfoResponse itemInfo, List<String> notifyFields) {
+        if (itemInfo == null || notifyFields == null || notifyFields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 使用 LinkedHashMap 按 userId 去重，保留插入顺序
+        Map<String, ItemInfoResponse.MemberInfo> dedup = new LinkedHashMap<>();
+        for (String field : notifyFields) {
+            List<ItemInfoResponse.MemberInfo> fieldMembers = itemInfo.getMembersByField(field);
+            if (fieldMembers == null) {
+                continue;
+            }
+            for (ItemInfoResponse.MemberInfo member : fieldMembers) {
+                String key = member.getUserId();
+                if (key == null || key.isEmpty()) {
+                    dedup.put("NO_USERID_" + System.identityHashCode(member), member);
+                } else if (!dedup.containsKey(key)) {
+                    dedup.put(key, member);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
     }
 
     private void saveNotifyLog(Integer itemId, String userid, String notifyType, String sendResult) {

@@ -4,6 +4,7 @@ import org.example.db.entity.ItemStateRecord;
 import org.example.db.mapper.ItemStateRecordMapper;
 import org.example.db.mapper.NotifyLogMapper;
 import org.example.model.dto.response.ItemInfoResponse;
+import org.example.model.enums.MsgKeyConstant;
 import org.example.service.CBSwaggerService;
 import org.example.service.DingService;
 import org.example.workflow.config.ExtraField;
@@ -21,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -103,7 +105,7 @@ class WorkflowNotifyServiceTest {
         // 构建状态配置
         stateConfig = new WorkflowTemplate.StateConfig();
         stateConfig.setName("处理中");
-        stateConfig.setNotifyField("assignedTo");
+        stateConfig.setNotifyField(List.of("assignedTo"));
     }
 
     /**
@@ -150,7 +152,7 @@ class WorkflowNotifyServiceTest {
         // previousState配置（需要通知）
         WorkflowTemplate.StateConfig previousStateConfig = new WorkflowTemplate.StateConfig();
         previousStateConfig.setName("处理中");
-        previousStateConfig.setNotifyField("assignedTo");
+        previousStateConfig.setNotifyField(List.of("assignedTo"));
 
         when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
         when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
@@ -231,6 +233,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         // Mock type-mappings and extra-fields
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
@@ -280,6 +283,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
 
@@ -324,6 +328,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
 
         NotifyResponse response = workflowNotifyService.notify(request);
 
@@ -382,6 +387,7 @@ class WorkflowNotifyServiceTest {
         when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
                 .thenReturn(stateConfig);
         when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig)).thenReturn(List.of("assignedTo"));
         when(workflowConfigService.getTypeMapping(eq("Bug"), anyInt())).thenReturn("智驾缺陷");
         when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.singletonList(extraField));
 //        doNothing().when(dingService).sendTextMessage(anyString(), anyString());
@@ -392,5 +398,68 @@ class WorkflowNotifyServiceTest {
 
         assertTrue(response.isSuccess());
 //        verify(dingService).sendTextMessage(eq("user123"), anyString());
+    }
+
+    /**
+     * 场景10: 多字段即时通知 - 合并 assignedTo 与 supervisors 字段成员
+     *
+     * notifyField: ["assignedTo", "supervisors"]
+     * assignedTo: 2 members, supervisors(owners): 1 member
+     * 预期: 合并去重后通知 3 人，actionType="即时通知"，sendRobotMessage 调用 3 次
+     */
+    @Test
+    @DisplayName("多字段即时通知 - 合并assignedTo与supervisors成员")
+    void testNotify_MultipleFields() {
+        ItemInfoResponse.MemberInfo member1 = new ItemInfoResponse.MemberInfo();
+        member1.setUserId("user123");
+        member1.setName("张三");
+        member1.setDisplayName("张三");
+
+        ItemInfoResponse.MemberInfo member2 = new ItemInfoResponse.MemberInfo();
+        member2.setUserId("user456");
+        member2.setName("李四");
+        member2.setDisplayName("李四");
+
+        ItemInfoResponse.MemberInfo supervisor = new ItemInfoResponse.MemberInfo();
+        supervisor.setUserId("user789");
+        supervisor.setName("王五");
+        supervisor.setDisplayName("王五");
+
+        itemInfo.setAssignedTo(Arrays.asList(member1, member2));
+        itemInfo.setOwners(Collections.singletonList(supervisor));
+
+        stateConfig.setNotifyField(List.of("assignedTo", "supervisors"));
+        workflow.setStates(Collections.singletonList(stateConfig));
+
+        when(cbSwaggerService.getItemInfo(anyInt())).thenReturn(itemInfo);
+        when(workflowConfigService.getWorkflowForTracker(anyInt(), anyString(), anyInt()))
+                .thenReturn(workflow);
+        // targetState需要通知
+        when(workflowConfigService.getStateConfig(any(WorkflowTemplate.class), eq("处理中")))
+                .thenReturn(stateConfig);
+        when(workflowConfigService.shouldNotify(stateConfig)).thenReturn(true);
+        when(workflowConfigService.getNotifyFields(stateConfig))
+                .thenReturn(List.of("assignedTo", "supervisors"));
+        // type-mappings and extra-fields
+        when(workflowConfigService.getTypeMapping(anyString(), anyInt())).thenReturn("缺陷");
+        when(workflowConfigService.getExtraFields(anyInt(), anyInt())).thenReturn(Collections.emptyList());
+        // 字段名称映射
+        when(cbSwaggerService.getTrackerFieldNameMapping(anyInt())).thenReturn(Collections.emptyMap());
+        when(dingService.getUserInfo(anyString())).thenReturn(null);
+        doNothing().when(notifyLogMapper).insert(any());
+
+        NotifyResponse response = workflowNotifyService.notify(request);
+
+        assertTrue(response.isSuccess());
+        assertEquals("即时通知", response.getActionType());
+        assertEquals(3, response.getNotifiedUsers().size());
+        assertTrue(response.getNotifiedUsers().contains("user123"));
+        assertTrue(response.getNotifiedUsers().contains("user456"));
+        assertTrue(response.getNotifiedUsers().contains("user789"));
+        assertTrue(response.getFailedUsers().isEmpty());
+
+        verify(dingService, times(3)).sendRobotMessage(anyString(), eq(null), anyString(), eq(MsgKeyConstant.SAMPLE_TEXT));
+        verify(itemStateRecordMapper).deleteByItemId(12345);
+        verify(notifyLogMapper, times(3)).insert(any());
     }
 }

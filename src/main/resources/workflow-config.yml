@@ -54,9 +54,9 @@ extra-fields:
 # 全局工作流模板（无description字段）
 # 项目级可直接引用或定义同名覆盖
 # ─────────────────────────────────────────────────────────────────────────────
-#global-workflows:
-#  - name:
-#    states:
+global-workflows:
+  - name:
+    states:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,7 +71,10 @@ projects:
       - name: "问题工作流"
         states:
           - name: "新建"
-            notify-field: "assignedTo"
+            notify-field:
+              - "assignedTo"
+              - "裁决人"
+            scheduled-notify-field: "裁决人"
             scheduled-notify: true
           - name: "重复"
             notify-field: "裁决人"
@@ -146,19 +149,9 @@ projects:
             fixed-delay-notify: false
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
-      #      - tracker-id: 5292
-      #        workflow: "客户需求流程"
       - tracker-type: "Bug"
         workflow: "问题工作流"
       - tracker-type: "Requirement"
         workflow: "需求工作流"
       - tracker-type: "Test Case"
         workflow: "测试工作流"
-
-    # trackers：差异部分配置（最高优先级，可定义extra-fields覆盖项目级）
-#    trackers:
-#      - tracker-id: 5295
-#        # tracker级 extra-fields（完全覆盖项目级）
-#        extra-fields:
-#          - field: "priority"
-#            label: "严重程度"

@@ -57,7 +57,7 @@ class WorkflowConfigServiceTest {
 
         WorkflowTemplate.StateConfig state2 = new WorkflowTemplate.StateConfig();
         state2.setName("处理中");
-        state2.setNotifyField("assignedTo");
+        state2.setNotifyField(List.of("assignedTo"));
 
         WorkflowTemplate.StateConfig state3 = new WorkflowTemplate.StateConfig();
         state3.setName("已关闭");
@@ -96,7 +96,7 @@ class WorkflowConfigServiceTest {
 
         WorkflowTemplate.StateConfig projectState = new WorkflowTemplate.StateConfig();
         projectState.setName("处理中");
-        projectState.setNotifyField("projectAssignedTo");
+        projectState.setNotifyField(List.of("projectAssignedTo"));
         projectWorkflow.setStates(Collections.singletonList(projectState));
 
         project.setWorkflows(Collections.singletonList(projectWorkflow));
@@ -273,7 +273,7 @@ class WorkflowConfigServiceTest {
         // 配置了notifyField
         WorkflowTemplate.StateConfig config1 = new WorkflowTemplate.StateConfig();
         config1.setName("处理中");
-        config1.setNotifyField("assignedTo");
+        config1.setNotifyField(List.of("assignedTo"));
         assertTrue(workflowConfigService.shouldNotify(config1));
 
         // notify=false
@@ -297,6 +297,32 @@ class WorkflowConfigServiceTest {
     }
 
     /**
+     * 场景7.1: 多通知字段 - 需要通知
+     */
+    @Test
+    @DisplayName("多通知字段 - 需要通知")
+    void testShouldNotify_MultipleFields() {
+        WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
+        config.setName("处理中");
+        config.setNotifyField(List.of("assignedTo", "supervisors"));
+
+        assertTrue(workflowConfigService.shouldNotify(config));
+    }
+
+    /**
+     * 场景7.2: 通知字段列表为空 - 不需要通知
+     */
+    @Test
+    @DisplayName("通知字段列表为空 - 不需要通知")
+    void testShouldNotify_EmptyFieldList() {
+        WorkflowTemplate.StateConfig config = new WorkflowTemplate.StateConfig();
+        config.setName("处理中");
+        config.setNotifyField(new ArrayList<>());
+
+        assertFalse(workflowConfigService.shouldNotify(config));
+    }
+
+    /**
      * 场景8: Tracker直接定义状态配置（最高优先级）
      */
     @Test
@@ -310,7 +336,7 @@ class WorkflowConfigServiceTest {
         // Tracker直接定义状态配置
         WorkflowTemplate.StateConfig directState = new WorkflowTemplate.StateConfig();
         directState.setName("特殊状态");
-        directState.setNotifyField("specialField");
+        directState.setNotifyField(List.of("specialField"));
 
         ProjectConfig.TrackerConfig trackerConfig = new ProjectConfig.TrackerConfig();
         trackerConfig.setTrackerId(111);
@@ -324,7 +350,7 @@ class WorkflowConfigServiceTest {
         assertNotNull(result);
         assertEquals(1, result.getStates().size());
         assertEquals("特殊状态", result.getStates().get(0).getName());
-        assertEquals("specialField", result.getStates().get(0).getNotifyField());
+        assertEquals(List.of("specialField"), result.getStates().get(0).getNotifyField());
     }
 
     /**
@@ -520,5 +546,133 @@ class WorkflowConfigServiceTest {
         // tracker级空列表，返回空列表
         List<ExtraField> result = workflowConfigService.getExtraFields(100, 111);
         assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetNotifyFields_SingleField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("assignedTo", result.get(0));
+    }
+
+    @Test
+    void testGetNotifyFields_MultipleFields() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo", "supervisors"));
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(2, result.size());
+        assertEquals("assignedTo", result.get(0));
+        assertEquals("supervisors", result.get(1));
+    }
+
+    @Test
+    void testGetNotifyFields_EmptyField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(new ArrayList<>());
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetNotifyFields_NullField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(null);
+
+        List<String> result = workflowConfigService.getNotifyFields(stateConfig);
+
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetNotifyFields_NullStateConfig() {
+        List<String> result = workflowConfigService.getNotifyFields(null);
+
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_ExplicitConfig() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setScheduledNotifyField(List.of("submitter"));
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("submitter", result.get(0));
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_InheritFromNotifyField() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+        stateConfig.setScheduledNotifyField(null); // 未配置
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("assignedTo", result.get(0));
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_ExplicitOverridesInheritance() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo"));
+        stateConfig.setScheduledNotifyField(List.of("submitter")); // 显式配置
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(1, result.size());
+        assertEquals("submitter", result.get(0)); // 使用显式配置，不继承
+    }
+
+    @Test
+    void testGetScheduledNotifyFields_MultipleFields() {
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setScheduledNotifyField(List.of("assignedTo", "submitter"));
+
+        List<String> result = workflowConfigService.getScheduledNotifyFields(stateConfig);
+
+        assertEquals(2, result.size());
+        assertEquals("assignedTo", result.get(0));
+        assertEquals("submitter", result.get(1));
+    }
+
+    /**
+     * 向后兼容性测试：仅配置 notify-field 的旧YAML配置
+     *
+     * 模拟现有YAML配置（未配置 scheduled-notify-field）的场景：
+     * - getNotifyFields 应返回单字段
+     * - getScheduledNotifyFields 应继承 notifyField
+     * - shouldNotify 应与旧行为一致
+     */
+    @Test
+    @DisplayName("向后兼容：仅配置 notify-field 的旧YAML配置")
+    void testBackwardCompatibility_SingleNotifyField() {
+        // Simulate existing YAML config: notify-field: "assignedTo"
+        WorkflowTemplate.StateConfig stateConfig = new WorkflowTemplate.StateConfig();
+        stateConfig.setNotifyField(List.of("assignedTo")); // Spring converts String to List
+        stateConfig.setScheduledNotify(true);
+        stateConfig.setScheduledNotifyField(null); // Not configured
+
+        // getNotifyFields should return single field
+        List<String> notifyFields = workflowConfigService.getNotifyFields(stateConfig);
+        assertEquals(1, notifyFields.size());
+        assertEquals("assignedTo", notifyFields.get(0));
+
+        // getScheduledNotifyFields should inherit notifyField
+        List<String> scheduledFields = workflowConfigService.getScheduledNotifyFields(stateConfig);
+        assertEquals(1, scheduledFields.size());
+        assertEquals("assignedTo", scheduledFields.get(0));
+
+        // shouldNotify should work as before
+        assertTrue(workflowConfigService.shouldNotify(stateConfig));
     }
 }

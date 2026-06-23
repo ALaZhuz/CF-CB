@@ -19,13 +19,13 @@ mybatis:
     map-underscore-to-camel-case: true
 
 codebeamer:
-#  base-url-prefix: https://cb-trial.hirain.com
-##  username: yangyang.zhang
-#  username: 271824611524632704
-#  password: yangyang.zhang
-    base-url-prefix: https://cb-pmt.hirain.com:8443
-    username: zhangjiamin.zhong
-    password: zhangjiamin.zhong
+  #  base-url-prefix: https://cb-trial.hirain.com
+  ##  username: yangyang.zhang
+  #  username: 271824611524632704
+  #  password: yangyang.zhang
+  base-url-prefix: https://cb-pmt.hirain.com:8443
+  username: zhangjiamin.zhong
+  password: zhangjiamin.zhong
 
   #  春风测试环境
 #  base-url-prefix: http://192.168.101.174:8080
@@ -60,8 +60,8 @@ dingtalk:
   # 每天定时任务提醒，默认8点
   notify-cron: "0 58 16 * * ?"
   # 轮询任务，默认30分钟
-#  fixed-delay: 1800000
-  fixed-delay: 180000
+  #  fixed-delay: 1800000
+  fixed-delay: 1800000
 
   # 通知临期/超期卡片上是否展示审查者信息,1-true,0-false
   is-moderator: 1

@@ -576,11 +576,13 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                 return action.get();
 
             } catch (org.springframework.web.client.HttpClientErrorException e) {
-                if (e.getStatusCode().value() == 429) {
+                int statusCode = e.getStatusCode().value();
+
+                if (statusCode == 429) {
                     // 429限流，解析retryAfterSeconds并等待重试
                     int retryAfterSeconds = extractRetryAfterSeconds(e.getMessage());
-                    log.warn("API限流, operation={}, itemId={}, 等待{}秒后重试(第{}次)",
-                            operationName, itemId, retryAfterSeconds, attempt + 1);
+//                    log.warn("API限流, operation={}, itemId={}, 等待{}秒后重试(第{}次)",
+//                            operationName, itemId, retryAfterSeconds, attempt + 1);
 
                     try {
                         Thread.sleep(retryAfterSeconds * 1000L);
@@ -588,6 +590,22 @@ public class CBSwaggerServiceImpl implements CBSwaggerService {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("重试等待被中断", ie);
                     }
+                } else if (statusCode == 400 && e.getMessage() != null && e.getMessage().contains("Not accessible")) {
+                    // Excel导入场景：权限索引可能延迟，短暂等待重试
+                    if (attempt < maxRetries) {
+//                        log.warn("条目暂时不可访问(可能权限索引未完成), operation={}, itemId={}, 等待500ms后重试(第{}次)",
+//                                operationName, itemId, attempt + 1);
+
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("重试等待被中断", ie);
+                        }
+                        continue;
+                    }
+                    // 重试次数用尽，抛出异常
+                    throw e;
                 } else {
                     // 其他HTTP错误直接抛出
                     throw e;

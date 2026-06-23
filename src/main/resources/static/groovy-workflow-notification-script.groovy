@@ -313,33 +313,58 @@ if (beforeEvent) {
             return;
         }
 
-        // Step 2: 判断是否是自定义字段
-        String notifyField = configResponse.notifyField
+        // Step 2: 解析 notifyFields（支持多字段）
+        // 新增字段 notifyFields（列表），兼容旧字段 notifyField（逗号分隔字符串）
+        List<String> notifyFields = []
 
-        // 内置字段列表
-        boolean isBuiltInField = "assignedTo".equals(notifyField) ||
-                                  "supervisors".equals(notifyField) ||
-                                  "submitter".equals(notifyField) ||
-                                  "createdBy".equals(notifyField) ||
-                                  "modifiedBy".equals(notifyField)
-
-        if (!isBuiltInField) {
-            // 自定义字段：跳过 beforeEvent 校验，直接放行
-            // 校验由 Java 服务端在 afterEvent 时通过 API 获取完整数据后处理
-            logger.info("自定义字段($notifyField)跳过beforeEvent校验，直接放行")
-            return;
+        if (configResponse.notifyFields != null && !configResponse.notifyFields.isEmpty()) {
+            // 使用新增的 notifyFields 列表
+            notifyFields = configResponse.notifyFields
+            logger.info("使用notifyFields列表: $notifyFields")
+        } else if (configResponse.notifyField != null && !configResponse.notifyField.isEmpty()) {
+            // 兼容旧版：解析逗号分隔字符串
+            notifyFields = configResponse.notifyField.split(",").toList()
+            logger.info("从notifyField解析: $notifyFields")
         }
 
-        // Step 3: 从subject提取成员信息（待保存的新数据）- 仅内置字段
-        List<String> userIds = getMemberUserIds(subject, notifyField)
-        List<String> memberNames = getMemberNames(subject, notifyField)
+        // 内置字段列表
+        List<String> builtInFields = ["assignedTo", "supervisors", "submitter", "createdBy", "modifiedBy"]
 
-        logger.info("提取成员信息: notifyField=$notifyField, userIds=$userIds, names=$memberNames")
+        // Step 3: 从subject提取内置字段的成员信息（合并去重）
+        // 自定义字段由 Java 服务端在 afterEvent 时处理
+        Set<String> allUserIds = new LinkedHashSet<String>()
+        List<String> allMemberNames = new ArrayList<String>()
+        List<String> builtInFieldsFound = new ArrayList<String>()
+
+        for (String field : notifyFields) {
+            if (builtInFields.contains(field)) {
+                // 只提取内置字段的成员
+                List<String> fieldUserIds = getMemberUserIds(subject, field)
+                List<String> fieldNames = getMemberNames(subject, field)
+
+                logger.info("内置字段[$field]提取结果: userIds=$fieldUserIds, names=$fieldNames")
+
+                if (fieldUserIds != null && !fieldUserIds.isEmpty()) {
+                    allUserIds.addAll(fieldUserIds)
+                    allMemberNames.addAll(fieldNames)
+                    builtInFieldsFound.add(field)
+                } else {
+                    logger.warn("内置字段[$field]无成员！")
+                }
+            } else {
+                logger.info("跳过自定义字段提取: $field (由Java服务端处理)")
+            }
+        }
+
+        // 如果没有内置字段有成员，直接校验（让Java服务端返回错误）
+        List<String> userIds = allUserIds.toList()
+
+        logger.info("内置字段成员汇总: builtInFields=$builtInFieldsFound, userIds=$userIds, names=$allMemberNames")
 
         // Step 4: 调用完整校验接口
         // JSON标准要求使用双引号，不是单引号
         def userIdsJson = userIds.isEmpty() ? "[]" : "[" + userIds.collect { "\"$it\"" }.join(",") + "]"
-        def namesJson = memberNames.isEmpty() ? "[]" : "[" + memberNames.collect { "\"$it\"" }.join(",") + "]"
+        def namesJson = allMemberNames.isEmpty() ? "[]" : "[" + allMemberNames.collect { "\"$it\"" }.join(",") + "]"
 
         def validateRequest
         if (isNewItem) {

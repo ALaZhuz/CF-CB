@@ -34,7 +34,9 @@ public interface DingService {
      * @param employeeId 员工ID
      * @return 管理者ID列表，逗号分隔
      */
-//    String queryOrganizationManager(String employeeId);
+    default String queryOrganizationManager(String employeeId) {
+        return null;
+    }
 
     /**
      * 校验用户userid在钉钉中是否存在

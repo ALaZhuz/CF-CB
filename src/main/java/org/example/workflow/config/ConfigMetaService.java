@@ -1,5 +1,6 @@
 package org.example.workflow.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import lombok.RequiredArgsConstructor;
@@ -37,9 +38,10 @@ public class ConfigMetaService {
     private final ConfigMetaMapper configMetaMapper;
     private final WorkflowProperties workflowProperties;
 
-    // 使用 Jackson ObjectMapper 进行配置转换（支持 kebab-case 到 camelCase）
+    // 使用 Jackson ObjectMapper 进行配置转换（支持 kebab-case 到 camelCase，支持单值→列表）
     private final ObjectMapper configObjectMapper = new ObjectMapper()
-            .setPropertyNamingStrategy(PropertyNamingStrategies.KEBAB_CASE);
+            .setPropertyNamingStrategy(PropertyNamingStrategies.KEBAB_CASE)
+            .enable(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY);
 
     @Value("${spring.config.import:classpath:workflow-config.yml}")
     private String configImport;
