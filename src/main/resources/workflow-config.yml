@@ -71,7 +71,10 @@ projects:
       - name: "问题工作流"
         states:
           - name: "新建"
-            notify-field: "assignedTo"
+            notify-field:
+              - "assignedTo"
+              - "裁决人"
+            scheduled-notify-field: "裁决人"
             scheduled-notify: true
           - name: "重复"
             notify-field: "裁决人"
@@ -112,6 +115,7 @@ projects:
             scheduled-notify: true
           - name: "解决"
             notify: false
+
 
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
