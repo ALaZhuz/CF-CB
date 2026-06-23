@@ -112,13 +112,48 @@ projects:
             scheduled-notify: true
           - name: "解决"
             notify: false
-
+      - name: "需求工作流"
+        states:
+          - name: "新建"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "填写中"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "评审中"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "科长批准"
+            notify-field: ""
+            fixed-delay-notify: true
+          - name: "部长批准"
+            notify-field: ""
+            fixed-delay-notify: true
+          - name: "已拒绝"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "已废弃"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "已挂起"
+            notify-field: ""
+            fixed-delay-notify: false
+          - name: "已发布"
+            notify-field: ""
+            fixed-delay-notify: true
+          - name: "修改中"
+            notify-field: ""
+            fixed-delay-notify: false
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
       #      - tracker-id: 5292
       #        workflow: "客户需求流程"
       - tracker-type: "Bug"
         workflow: "问题工作流"
+      - tracker-type: "Requirement"
+        workflow: "需求工作流"
+      - tracker-type: "Test Case"
+        workflow: "测试工作流"
 
     # trackers：差异部分配置（最高优先级，可定义extra-fields覆盖项目级）
 #    trackers:
