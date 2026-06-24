@@ -13,6 +13,7 @@ import org.example.service.DingService;
 import org.example.workflow.cache.OrgCacheService;
 import org.example.workflow.cache.DingUserCacheService;
 import org.example.workflow.config.*;
+import org.example.workflow.service.BatchNotifyService.SupplementResult;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.DependsOn;
@@ -54,6 +55,7 @@ public class ScheduledNotifyService {
     private final NotifyLogMapper notifyLogMapper;
     private final DingUserCacheService dingUserCacheService;
     private final InitService initService;
+    private final BatchNotifyService batchNotifyService;
 
     @PostConstruct
     public void validateCacheReadiness() {
@@ -175,14 +177,24 @@ public class ScheduledNotifyService {
             int totalDeleted = 0;
             int totalSkipped = 0;
 
+            // 批量通知补录统计
+            int totalBatchSupplemented = 0;
+            int totalBatchSkipped = 0;
+
             for (ProjectConfig project : projects) {
                 try {
+                    // 1. 定时通知数据同步
                     InitService.InitResult result = initService.supplementProject(project.getProjectId());
                     totalProcessed += result.getProcessed();
                     totalInserted += result.getInserted();
                     totalUpdated += result.getUpdated();
                     totalDeleted += result.getDeleted();
                     totalSkipped += result.getSkipped();
+
+                    // 2. 批量通知补录
+                    SupplementResult batchResult = batchNotifyService.supplementInstantNotifyRecords(project);
+                    totalBatchSupplemented += batchResult.getSupplemented();
+                    totalBatchSkipped += batchResult.getSkipped();
 
                     // 项目之间添加延迟，避免API限流
                     Thread.sleep(2000);
@@ -196,8 +208,9 @@ public class ScheduledNotifyService {
             }
 
             long duration = System.currentTimeMillis() - startTime;
-            log.info("========== 预清理任务完成 ========== 处理={}, 新增={}, 更新={}, 删除={}, 跳过={}, 耗时={}ms",
-                    totalProcessed, totalInserted, totalUpdated, totalDeleted, totalSkipped, duration);
+            log.info("========== 预清理任务完成 ========== 定时通知: 处理={}, 新增={}, 更新={}, 删除={}, 跳过={}; 批量通知: 补录={}, 跳过={}, 耗时={}ms",
+                    totalProcessed, totalInserted, totalUpdated, totalDeleted, totalSkipped,
+                    totalBatchSupplemented, totalBatchSkipped, duration);
 
         } catch (Exception e) {
             log.error("预清理任务执行失败: {}", e.getMessage(), e);

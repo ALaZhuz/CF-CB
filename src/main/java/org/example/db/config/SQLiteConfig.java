@@ -157,6 +157,31 @@ public class SQLiteConfig {
                 """;
             stmt.execute(createTable4);
 
+            // 创建表5: instant_notify_record（批量即时通知记录表）
+            // 存储粒度：条目级别（记录每个条目的通知人）
+            // 发送粒度：Tracker级别（按Project→Tracker→notify_userid分组聚合）
+            // 第二天00:00清空（批量通知只在当天有效）
+            String createTable5 = """
+                CREATE TABLE IF NOT EXISTS instant_notify_record (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id INTEGER NOT NULL,
+                    tracker_id INTEGER NOT NULL,
+                    tracker_type TEXT,
+                    project_id INTEGER NOT NULL,
+                    target_state TEXT NOT NULL,
+                    notify_userid TEXT NOT NULL,
+                    notify_date DATE NOT NULL,
+                    notify_time DATETIME,
+                    notify_success BOOLEAN DEFAULT FALSE,
+                    UNIQUE(item_id, notify_userid, notify_date)
+                )
+                """;
+            stmt.execute(createTable5);
+
+            // 创建索引：提高查询性能
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_notify_date ON instant_notify_record(notify_date, notify_success)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_notify_userid ON instant_notify_record(notify_userid)");
+
             // 兼容旧数据库：添加缺失的列（如果不存在）
             try {
                 stmt.execute("ALTER TABLE config_meta ADD COLUMN yaml_content TEXT");

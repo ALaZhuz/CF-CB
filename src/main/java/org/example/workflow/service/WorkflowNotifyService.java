@@ -3,8 +3,10 @@ package org.example.workflow.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.db.entity.ItemStateRecord;
+import org.example.db.entity.InstantNotifyRecord;
 import org.example.db.entity.NotifyLog;
 import org.example.db.mapper.ItemStateRecordMapper;
+import org.example.db.mapper.InstantNotifyRecordMapper;
 import org.example.db.mapper.NotifyLogMapper;
 import org.example.model.dto.response.ItemInfoResponse;
 import org.example.model.enums.MsgKeyConstant;
@@ -17,6 +19,7 @@ import org.example.workflow.dto.NotifyRequest;
 import org.example.workflow.dto.NotifyResponse;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -52,6 +55,7 @@ public class WorkflowNotifyService {
     private final DingService dingService;
     private final ItemStateRecordMapper itemStateRecordMapper;
     private final NotifyLogMapper notifyLogMapper;
+    private final InstantNotifyRecordMapper instantNotifyRecordMapper;
 
     /**
      * 执行afterEvent通知处理
@@ -119,7 +123,17 @@ public class WorkflowNotifyService {
                 log.info("[afterEvent] 需要定时通知，更新数据库记录: itemId={}, targetState={}", itemId, targetState);
             }
 
-            // ========== 二、即时通知处理（与数据库无关）==========
+            // ========== 二、批量即时通知记录处理 ==========
+
+            List<String> batchNotifyFields = workflowConfigService.getBatchNotifyFields(targetStateConfig);
+            if (!batchNotifyFields.isEmpty()) {
+                // 配置了批量通知字段 → 保存到 instant_notify_record 表
+                saveInstantNotifyRecord(itemInfo, trackerId, trackerType, projectId, targetState, batchNotifyFields);
+                log.info("[afterEvent] 配置了批量通知字段，保存记录: itemId={}, trackerId={}, targetState={}, batchNotifyFields={}",
+                        itemId, trackerId, targetState, batchNotifyFields);
+            }
+
+            // ========== 三、即时通知处理（Webhook立即通知）==========
 
             boolean needsInstantNotify = workflowConfigService.shouldNotify(targetStateConfig);
 
@@ -399,6 +413,48 @@ public class WorkflowNotifyService {
 
         itemStateRecordMapper.insert(record);
         log.debug("保存状态记录: itemId={}, trackerType={}, lastNotifyTime=null", itemId, trackerType);
+    }
+
+    /**
+     * 保存批量即时通知记录
+     *
+     * 当条目进入配置了batchNotifyField的状态时调用。
+     * 为每个通知人插入一条记录，用于轮询批量通知。
+     *
+     * @param itemInfo 条目详情
+     * @param trackerId tracker ID
+     * @param trackerType tracker类型
+     * @param projectId 项目ID
+     * @param targetState 目标状态
+     * @param batchNotifyFields 批量通知字段列表
+     */
+    private void saveInstantNotifyRecord(ItemInfoResponse itemInfo, Integer trackerId, String trackerType,
+                                         Integer projectId, String targetState, List<String> batchNotifyFields) {
+        LocalDate today = LocalDate.now();
+
+        // 获取所有通知人（按字段获取成员）
+        List<ItemInfoResponse.MemberInfo> members = getMembersByFields(itemInfo, batchNotifyFields);
+
+        for (ItemInfoResponse.MemberInfo member : members) {
+            String userid = member.getUserId();
+            if (userid == null || userid.isEmpty()) {
+                continue;
+            }
+
+            InstantNotifyRecord record = new InstantNotifyRecord();
+            record.setTrackerId(trackerId);
+            record.setTrackerType(trackerType);
+            record.setProjectId(projectId);
+            record.setTargetState(targetState);
+            record.setNotifyUserid(userid);
+            record.setNotifyDate(today);
+            record.setNotifySuccess(false);
+
+            // 使用 INSERT OR IGNORE，如果已存在则跳过
+            instantNotifyRecordMapper.insert(record);
+            log.debug("保存批量通知记录: trackerId={}, targetState={}, notifyUserid={}, notifyDate={}",
+                    trackerId, targetState, userid, today);
+        }
     }
 
     /**

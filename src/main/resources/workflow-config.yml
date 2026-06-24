@@ -6,6 +6,9 @@ default-cleanup-time: "04:00"
 # 定时通知执行时间
 default-notify-time: "19:40"
 
+# 批量通知轮询时长配置
+default-batch-notify-delay: 180000
+
 classify-config:
   # 分类通知配置（定时通知功能）
   projects:
@@ -118,35 +121,68 @@ projects:
       - name: "需求工作流"
         states:
           - name: "新建"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
           - name: "填写中"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
           - name: "评审中"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
           - name: "科长批准"
-            notify-field: ""
-            fixed-delay-notify: true
+            notify: false
+            scheduled-notify-field: "评审科长"
+            scheduled-notify: true
+            batch-notify-field: 
+              - "评审科长"
           - name: "部长批准"
-            notify-field: ""
-            fixed-delay-notify: true
+            notify: false
+            scheduled-notify-field: "评审部长"
+            scheduled-notify: true
+            batch-notify-field: 
+              - "评审部长"
           - name: "已拒绝"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
+            batch-notify-field: 
+              - "Owner"
           - name: "已废弃"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
           - name: "已挂起"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
           - name: "已发布"
-            notify-field: ""
-            fixed-delay-notify: true
+            notify: false
+            batch-notify-field: 
+              - "测试负责人"
+              - "下游分配人"
           - name: "修改中"
-            notify-field: ""
-            fixed-delay-notify: false
+            notify: false
+      - name: "测试工作流"
+        states:
+          - name: "新建"
+            notify: false
+          - name: "填写中"
+            notify: false
+          - name: "评审中"
+            notify: false
+          - name: "科长批准"
+            notify: false
+            scheduled-notify-field: "评审科长"
+            scheduled-notify: true
+            batch-notify-field: 
+              - "评审科长"
+          - name: "部长批准"
+            notify: false
+            scheduled-notify-field: "评审部长"
+            scheduled-notify: true
+            batch-notify-field: 
+              - "评审部长"
+          - name: "已拒绝"
+            notify: false
+            batch-notify-field: 
+              - "负责人"
+          - name: "已废弃"
+            notify: false
+          - name: "已挂起"
+            notify: false
+          - name: "修改中"
+            notify: false
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
       - tracker-type: "Bug"

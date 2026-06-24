@@ -38,6 +38,9 @@ public class WorkflowProperties {
     /** 全局默认通知时间（每天执行定时通知的时间，格式：HH:mm，默认08:00） */
     private String defaultNotifyTime = "08:00";
 
+    /** 批量通知轮询时长（毫秒） */
+    private Long defaultBatchNotifyDelay = 180000L;
+
     /** 钉钉通知模式配置 */
     private DingtalkConfig dingtalk = new DingtalkConfig();
 

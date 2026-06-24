@@ -39,6 +39,9 @@ public class WorkflowTemplate {
         /** 即时通知字段列表（单值或列表） */
         private List<String> notifyField;
 
+        /** 批量通知字段列表（轮询批量即时通知） */
+        private List<String> batchNotifyField;
+
         /** 定时通知字段列表（可选，默认继承 notifyField） */
         private List<String> scheduledNotifyField;
 

@@ -376,6 +376,31 @@ public class WorkflowConfigService {
     }
 
     /**
+     * 获取批量通知字段列表
+     *
+     * @param stateConfig 状态配置
+     * @return 字段列表，未配置返回空列表
+     */
+    public List<String> getBatchNotifyFields(WorkflowTemplate.StateConfig stateConfig) {
+        if (stateConfig == null) {
+            return new ArrayList<>();
+        }
+
+        List<String> fields = stateConfig.getBatchNotifyField();
+        return fields != null ? fields : new ArrayList<>();
+    }
+
+    /**
+     * 获取批量通知轮询时长（毫秒）
+     *
+     * @return 轮询时长，默认180000（3分钟）
+     */
+    public Long getBatchNotifyDelay() {
+        Long delay = workflowProperties.getDefaultBatchNotifyDelay();
+        return delay != null ? delay : 180000L;
+    }
+
+    /**
      * 判断状态是否需要通知
      *
      * @param stateConfig 状态配置
