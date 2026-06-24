@@ -158,13 +158,37 @@ public class SQLiteConfig {
             stmt.execute(createTable4);
 
             // 创建表5: instant_notify_record（批量即时通知记录表）
-            // 存储粒度：条目级别（记录每个条目的通知人）
+            // 存储粒度：Tracker-state-通知人级别
             // 发送粒度：Tracker级别（按Project→Tracker→notify_userid分组聚合）
+            // 发送内容：tracker链接（不需要列出条目）
             // 第二天00:00清空（批量通知只在当天有效）
+
+            // 兼容旧表结构：删除包含item_id字段的旧表
+            try {
+                // 检查旧表是否存在item_id列（如果存在则说明是旧结构）
+                var rs = stmt.executeQuery("PRAGMA table_info(instant_notify_record)");
+                boolean hasItemIdColumn = false;
+                while (rs.next()) {
+                    String columnName = rs.getString("name");
+                    if ("item_id".equals(columnName)) {
+                        hasItemIdColumn = true;
+                        break;
+                    }
+                }
+                rs.close();
+
+                if (hasItemIdColumn) {
+                    // 删除旧表，重新创建符合新结构
+                    stmt.execute("DROP TABLE IF EXISTS instant_notify_record");
+                    System.out.println("删除旧表instant_notify_record（包含item_id字段），重新创建新结构");
+                }
+            } catch (SQLException e) {
+                // 表不存在或查询失败，忽略
+            }
+
             String createTable5 = """
                 CREATE TABLE IF NOT EXISTS instant_notify_record (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    item_id INTEGER NOT NULL,
                     tracker_id INTEGER NOT NULL,
                     tracker_type TEXT,
                     project_id INTEGER NOT NULL,
@@ -173,7 +197,7 @@ public class SQLiteConfig {
                     notify_date DATE NOT NULL,
                     notify_time DATETIME,
                     notify_success BOOLEAN DEFAULT FALSE,
-                    UNIQUE(item_id, notify_userid, notify_date)
+                    UNIQUE(tracker_id, target_state, notify_userid, notify_date)
                 )
                 """;
             stmt.execute(createTable5);

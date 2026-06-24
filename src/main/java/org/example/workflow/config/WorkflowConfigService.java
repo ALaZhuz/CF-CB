@@ -66,7 +66,7 @@ public class WorkflowConfigService {
 
         // 再查找全局映射
         Map<String, String> globalMappings = workflowProperties.getTypeMappings().getGlobal();
-        if (globalMappings.containsKey(trackerType)) {
+        if (globalMappings != null && globalMappings.containsKey(trackerType)) {
             return globalMappings.get(trackerType);
         }
 
@@ -100,10 +100,13 @@ public class WorkflowConfigService {
 
         // 2. 再查找项目级配置
         if (projectId != null) {
-            List<ExtraField> projectFields = workflowProperties.getExtraFields()
-                    .getProjects().get(String.valueOf(projectId));
-            if (projectFields != null) {
-                return projectFields;
+            Map<String, List<ExtraField>> projectExtraFields = workflowProperties.getExtraFields()
+                    .getProjects();
+            if (projectExtraFields != null) {
+                List<ExtraField> projectFields = projectExtraFields.get(String.valueOf(projectId));
+                if (projectFields != null) {
+                    return projectFields;
+                }
             }
         }
 
@@ -473,23 +476,29 @@ public class WorkflowConfigService {
                                                   Integer trackerId, String trackerType,
                                                   ProjectConfig projectConfig) {
         if (rules == null || rules.isEmpty()) {
+            log.warn("tracker-matching规则列表为空: projectId={}", projectConfig.getProjectId());
             return null;
         }
 
+        log.debug("开始匹配tracker: trackerId={}, trackerType={}, rulesCount={}", trackerId, trackerType, rules.size());
+
         for (TrackerMatchingRule rule : rules) {
+            log.debug("检查匹配规则: trackerId={}, trackerType={}, workflow={}", rule.getTrackerId(), rule.getTrackerType(), rule.getWorkflow());
+
             // tracker-id精确匹配（优先）
             if (rule.matchesTrackerId(trackerId)) {
-                log.debug("tracker-id匹配成功: trackerId={}, workflow={}", trackerId, rule.getWorkflow());
+                log.info("tracker-id匹配成功: trackerId={}, workflow={}", trackerId, rule.getWorkflow());
                 return findWorkflowByName(rule.getWorkflow(), projectConfig);
             }
 
             // tracker-type类型匹配
             if (rule.matchesTrackerType(trackerType)) {
-                log.debug("tracker-type匹配成功: trackerType={}, workflow={}", trackerType, rule.getWorkflow());
+                log.info("tracker-type匹配成功: trackerType={}, workflow={}", trackerType, rule.getWorkflow());
                 return findWorkflowByName(rule.getWorkflow(), projectConfig);
             }
         }
 
+        log.warn("所有规则均未匹配: trackerId={}, trackerType={}, projectId={}", trackerId, trackerType, projectConfig.getProjectId());
         return null;
     }
 

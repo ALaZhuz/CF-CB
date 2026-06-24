@@ -452,8 +452,8 @@ public class WorkflowNotifyService {
 
             // 使用 INSERT OR IGNORE，如果已存在则跳过
             instantNotifyRecordMapper.insert(record);
-            log.debug("保存批量通知记录: trackerId={}, targetState={}, notifyUserid={}, notifyDate={}",
-                    trackerId, targetState, userid, today);
+            log.info("保存批量通知记录: trackerId={}, targetState={}, notifyUserid={}, notifyDate={}, membersCount={}",
+                    trackerId, targetState, userid, today, members.size());
         }
     }
 

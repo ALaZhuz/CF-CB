@@ -118,6 +118,16 @@ projects:
             scheduled-notify: true
           - name: "解决"
             notify: false
+    # tracker-matching：tracker-id + tracker-type
+    tracker-matching:
+      - tracker-type: "Bug"
+        workflow: "问题工作流"
+
+  - project-id: 10
+    project-name: "春风模拟-EEA2.0-多过程域配置"
+
+    # 项目独有 workflow（复用全局直接在tracker-matching引用）
+    workflows:
       - name: "需求工作流"
         states:
           - name: "新建"
@@ -130,25 +140,25 @@ projects:
             notify: false
             scheduled-notify-field: "评审科长"
             scheduled-notify: true
-            batch-notify-field: 
+            batch-notify-field:
               - "评审科长"
           - name: "部长批准"
             notify: false
             scheduled-notify-field: "评审部长"
             scheduled-notify: true
-            batch-notify-field: 
+            batch-notify-field:
               - "评审部长"
           - name: "已拒绝"
             notify: false
-            batch-notify-field: 
-              - "Owner"
+            batch-notify-field:
+              - "assignedTo"
           - name: "已废弃"
             notify: false
           - name: "已挂起"
             notify: false
           - name: "已发布"
             notify: false
-            batch-notify-field: 
+            batch-notify-field:
               - "测试负责人"
               - "下游分配人"
           - name: "修改中"
@@ -165,18 +175,18 @@ projects:
             notify: false
             scheduled-notify-field: "评审科长"
             scheduled-notify: true
-            batch-notify-field: 
+            batch-notify-field:
               - "评审科长"
           - name: "部长批准"
             notify: false
             scheduled-notify-field: "评审部长"
             scheduled-notify: true
-            batch-notify-field: 
+            batch-notify-field:
               - "评审部长"
           - name: "已拒绝"
             notify: false
-            batch-notify-field: 
-              - "负责人"
+            batch-notify-field:
+              - "assignedTo"
           - name: "已废弃"
             notify: false
           - name: "已挂起"
@@ -185,9 +195,9 @@ projects:
             notify: false
     # tracker-matching：tracker-id + tracker-type
     tracker-matching:
-      - tracker-type: "Bug"
-        workflow: "问题工作流"
       - tracker-type: "Requirement"
         workflow: "需求工作流"
       - tracker-type: "Test Case"
         workflow: "测试工作流"
+
+
