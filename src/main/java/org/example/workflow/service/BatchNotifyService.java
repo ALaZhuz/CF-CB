@@ -237,16 +237,21 @@ public class BatchNotifyService {
      */
     private String buildMessage(String displayName, String targetState, List<String> trackerLinks) {
 
-        StringBuilder message = new StringBuilder();
-        message.append(displayName).append("，您好，\n\n");
-        message.append("以下tracker中已有条目到达【").append(targetState).append("】状态，");
-        message.append("请点击链接，筛选状态为【").append(targetState).append("】的条目，进行评审：\n\n");
+        // 1. 获取模板配置并替换占位符
+        String template = workflowConfigService.getBatchNotifyTemplate();
+        String templateContent = template.replace("{targetState}", targetState);
 
+        // 2. 构建tracker链接列表
+        StringBuilder linksContent = new StringBuilder();
         for (int i = 0; i < trackerLinks.size(); i++) {
-            message.append(i + 1).append(". ").append(trackerLinks.get(i)).append("\n");
+            linksContent.append(i + 1).append(". ").append(trackerLinks.get(i)).append("\n");
         }
 
-        message.append("\n请及时处理。");
+        // 3. 组合完整消息
+        StringBuilder message = new StringBuilder();
+        message.append(displayName).append("，您好，\n\n");
+        message.append(templateContent).append("\n\n");
+        message.append(linksContent);
 
         return message.toString();
     }

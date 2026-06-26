@@ -8,6 +8,8 @@ default-notify-time: "19:40"
 
 # 批量通知轮询时长配置
 default-batch-notify-delay: 180000
+# 批量通知模板（支持占位符：{targetState}）
+default-batch-notify-template: "您好，请点击以下跟踪器链接，筛选状态为【{targetState}】的条目，进行评审！"
 
 classify-config:
   # 分类通知配置（定时通知功能）

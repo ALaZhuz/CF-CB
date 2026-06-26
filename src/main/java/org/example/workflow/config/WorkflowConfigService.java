@@ -404,6 +404,19 @@ public class WorkflowConfigService {
     }
 
     /**
+     * 获取批量通知模板
+     *
+     * 模板支持占位符：{targetState}
+     *
+     * @return 批量通知模板，默认："您好，请点击以下跟踪器链接，筛选状态为【{targetState}】的条目，进行评审！"
+     */
+    public String getBatchNotifyTemplate() {
+        String template = workflowProperties.getDefaultBatchNotifyTemplate();
+        return template != null && !template.isEmpty() ? template :
+            "您好，请点击以下跟踪器链接，筛选状态为【{targetState}】的条目，进行评审！";
+    }
+
+    /**
      * 判断状态是否需要通知
      *
      * @param stateConfig 状态配置

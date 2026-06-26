@@ -41,6 +41,9 @@ public class WorkflowProperties {
     /** 批量通知轮询时长（毫秒） */
     private Long defaultBatchNotifyDelay = 180000L;
 
+    /** 批量通知模板（支持占位符：{targetState}） */
+    private String defaultBatchNotifyTemplate = "您好，请点击以下跟踪器链接，筛选状态为【{targetState}】的条目，进行评审！";
+
     /** 钉钉通知模式配置 */
     private DingtalkConfig dingtalk = new DingtalkConfig();
 
