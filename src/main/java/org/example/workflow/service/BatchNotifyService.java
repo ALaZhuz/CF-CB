@@ -72,7 +72,7 @@ public class BatchNotifyService {
             return;
         }
 
-        log.info("待发送记录数: {}", pendingRecords.size());
+        log.info("待发送批量通知记录数: {}", pendingRecords.size());
 
         // 2. 按 notify_userid + target_state 分组聚合
         Map<String, Map<String, List<InstantNotifyRecord>>> groupedRecords =
@@ -113,7 +113,7 @@ public class BatchNotifyService {
 
                 } catch (Exception e) {
                     log.error("批量通知发送失败: notifyUserid={}, targetState={}, error={}",
-                            notifyUserid, targetState, e.getMessage());
+                            notifyUserid, targetState, e.getMessage()) ;
                     failCount++;
 
                     // 记录失败日志
@@ -197,9 +197,9 @@ public class BatchNotifyService {
 
         // 4. 发送消息
         try {
-            dingService.sendRobotMessage(notifyUserid, "批量通知提醒", message, MsgKeyConstant.SAMPLE_MARKDOWN);
-            log.info("批量通知发送成功: notifyUserid={}, targetState={}, trackerCount={}, 消息内容=\n{}",
-                    notifyUserid, targetState, trackerLinks.size(), message);
+            dingService.sendRobotMessage(notifyUserid, "条目状态转变通知", message, MsgKeyConstant.SAMPLE_MARKDOWN);
+            log.info("批量通知发送成功: notifyUserid={}, targetState={}, trackerCount={}",
+                    notifyUserid, targetState, trackerLinks.size());
 
             // 记录成功日志
             for (InstantNotifyRecord record : records) {
@@ -249,7 +249,6 @@ public class BatchNotifyService {
 
         // 3. 组合完整消息
         StringBuilder message = new StringBuilder();
-        message.append(displayName).append("，您好，\n\n");
         message.append(templateContent).append("\n\n");
         message.append(linksContent);
 

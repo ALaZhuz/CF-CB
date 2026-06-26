@@ -129,8 +129,8 @@ public class WorkflowNotifyService {
             if (!batchNotifyFields.isEmpty()) {
                 // 配置了批量通知字段 → 保存到 instant_notify_record 表
                 saveInstantNotifyRecord(itemInfo, trackerId, trackerType, projectId, targetState, batchNotifyFields);
-                log.info("[afterEvent] 配置了批量通知字段，保存记录: itemId={}, trackerId={}, targetState={}, batchNotifyFields={}",
-                        itemId, trackerId, targetState, batchNotifyFields);
+//                log.info("[afterEvent] 配置了批量通知字段，保存记录: itemId={}, trackerId={}, targetState={}, batchNotifyFields={}",
+//                        itemId, trackerId, targetState, batchNotifyFields);
             }
 
             // ========== 三、即时通知处理（Webhook立即通知）==========
@@ -452,8 +452,8 @@ public class WorkflowNotifyService {
 
             // 使用 INSERT OR IGNORE，如果已存在则跳过
             instantNotifyRecordMapper.insert(record);
-            log.info("保存批量通知记录: trackerId={}, targetState={}, notifyUserid={}, notifyDate={}, membersCount={}",
-                    trackerId, targetState, userid, today, members.size());
+//            log.info("保存批量通知记录: trackerId={}, targetState={}, notifyUserid={}, notifyDate={}, membersCount={}",
+//                    trackerId, targetState, userid, today, members.size());
         }
     }
 
